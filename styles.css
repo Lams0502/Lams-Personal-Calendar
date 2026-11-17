@@ -301,3 +301,18 @@ body {
   .fc .fc-toolbar.fc-footer-toolbar { margin-top: .6em; }
   .row { grid-template-columns: 1fr 110px; }
 }
+
+/* ── Sincronización de turnos ───────────────────────────────── */
+#shifts-body p { margin: 0; line-height: 1.5; }
+.plan-list, .next-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.plan-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.next-list li { font-size: 14px; }
+.error-note { color: var(--danger); }

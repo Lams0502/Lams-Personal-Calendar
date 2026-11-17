@@ -11,6 +11,7 @@ Calendario web personal alojado en **GitHub Pages** y sincronizado con **Google 
 - Colores oficiales de Google Calendar.
 - Modo oscuro automático.
 - Tecla **N** para crear un evento nuevo.
+- **Sincronización de turnos de trabajo** (botón 🗓️ Turnos): copia solo los turnos de Luis Martinez del cuadrante de operaciones.
 
 **Cómo funciona:** no hay servidor ni base de datos. La página habla directamente con la API de Google Calendar desde tu navegador. Tu Google Calendar es el único sitio donde se guardan los datos, así que lo que cambies aquí aparece al instante en Google (móvil, Gmail…). Los cambios que hagas en Google se ven aquí al refrescar, cuando vuelves a la pestaña o cada 60 segundos.
 
@@ -87,6 +88,32 @@ Haz commit y push. GitHub Pages se actualiza en uno o dos minutos.
 Abre `https://lams0502.github.io/Lams-Personal-Calendar/` → **Conectar con Google** → elige tu cuenta.
 
 La primera vez Google mostrará **«Google no ha verificado esta aplicación»**. Es normal, porque es tu propia app en modo prueba. Pulsa **Continuar**, marca los permisos de Calendar y acepta.
+
+---
+
+## Turnos de trabajo (botón 🗓️ Turnos)
+
+El botón lee la planificación publicada en `https://joaomgonzalezt.github.io/turnos/horarios2026.csv`, coge **únicamente la fila de «Luis Martinez»** y copia esos turnos a tu calendario.
+
+| Código | Turno | Horario | Color |
+|---|---|---|---|
+| MA / ML | Mañana Arteixo / Laracha | 07:00 – 15:00 | Plátano (amarillo) |
+| TA / TL | Tarde Arteixo / Laracha | 15:00 – 23:00 | Mandarina (naranja) |
+| NA / NL | Noche Arteixo / Laracha | 23:00 – 07:00 (día siguiente) | Arándano (azul) |
+
+Cómo funciona:
+- Antes de cambiar nada te enseña un resumen: turnos nuevos, cambiados, eliminados y sin cambios. Solo aplica los cambios si pulsas **Sincronizar**.
+- Puedes pulsarlo tantas veces como quieras: **no duplica**. Si el cuadrante cambia, corrige los turnos cambiados y borra los que ya no están.
+- Solo toca los eventos que creó él mismo, porque llevan una marca interna. Tus otros eventos no se tocan nunca.
+- Por defecto solo sincroniza **de hoy en adelante**. Los turnos pasados se quedan como estaban.
+- Los turnos se crean en el calendario que tengas seleccionado arriba.
+
+Ajustes en `config.js` → `TURNOS`:
+- `OPERADOR`: el nombre tal como aparece en el cuadrante.
+- `CSV_URL`: cámbialo cuando publiquen el cuadrante de otro año, por ejemplo `horarios2027.csv`.
+- `SOLO_DESDE_HOY`: ponlo a `false` para importar también los turnos pasados.
+
+> Aviso: al final del cuadrante actual hay 3 turnos después del 31 de diciembre sin fecha en el archivo. No se importan hasta que el cuadrante tenga esas fechas.
 
 ---
 

@@ -6,7 +6,7 @@
   <title>Lams Personal Calendar</title>
   <meta name="robots" content="noindex" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=2" />
 </head>
 <body>
   <!-- Pantalla de acceso -->
@@ -34,6 +34,7 @@
       <div class="topbar-right">
         <span id="sync-status" class="sync-status" title="Estado de sincronización"></span>
         <button id="refresh-btn" class="btn btn-ghost" type="button" title="Sincronizar ahora">⟳</button>
+        <button id="shifts-btn" class="btn btn-ghost" type="button" title="Sincronizar turnos de trabajo" hidden>🗓️ Turnos</button>
         <button id="new-btn" class="btn btn-primary" type="button" title="Nuevo evento (tecla N)">+ Nuevo</button>
         <button id="logout-btn" class="btn btn-ghost" type="button" title="Desconectar cuenta">Salir</button>
       </div>
@@ -102,6 +103,7 @@
           </select>
         </label>
         <p id="recurring-note" class="note" hidden>Evento periódico: los cambios se aplican solo a esta repetición.</p>
+        <p id="shift-note" class="note" hidden>Turno sincronizado desde el cuadrante. Si lo cambias a mano, la próxima sincronización puede sobrescribirlo.</p>
 
         <label class="field">
           <span>Ubicación</span>
@@ -135,6 +137,22 @@
     </form>
   </dialog>
 
+  <!-- Sincronización de turnos -->
+  <dialog id="shifts-dialog" class="event-dialog">
+    <div class="dialog-head">
+      <h2>Sincronizar turnos</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-shifts aria-label="Cerrar">✕</button>
+    </div>
+    <div class="dialog-body" id="shifts-body">
+      <p class="muted">Leyendo la planificación…</p>
+    </div>
+    <div class="dialog-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-ghost" data-close-shifts>Cancelar</button>
+      <button id="shifts-confirm" type="button" class="btn btn-primary" disabled>Sincronizar</button>
+    </div>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <!-- Librerías -->
@@ -143,7 +161,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <!-- App -->
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script src="config.js?v=2"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>

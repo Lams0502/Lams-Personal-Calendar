@@ -83,7 +83,13 @@
     deleteBtn: $('#delete-btn'),
     saveBtn: $('#save-btn'),
     toast: $('#toast'),
+    shiftNote: $('#shift-note'),
+    shiftsBtn: $('#shifts-btn'),
+    shiftsDialog: $('#shifts-dialog'),
+    shiftsBody: $('#shifts-body'),
+    shiftsConfirm: $('#shifts-confirm'),
   };
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const f = els.form.elements;
 
   let toastTimer = null;
@@ -259,6 +265,7 @@
       if (res.status === 410) msg = 'Este evento ya no existe (se borró en otro dispositivo).';
       const err = new Error(msg);
       err.status = res.status;
+      err.reason = reason;
       throw err;
     }
     return data;
@@ -315,6 +322,7 @@
     calendarColor = c?.backgroundColor || '#039be5';
     els.calDot.style.background = calendarColor;
     els.newBtn.disabled = !calendarWritable;
+    els.shiftsBtn.disabled = !calendarWritable;
     try { localStorage.setItem(LS.calendar, currentCalendarId); } catch { /* ignorar */ }
     if (calendar) {
       calendar.setOption('eventColor', calendarColor);
@@ -436,6 +444,7 @@
     els.dialogTitle.textContent = !fcEvent ? 'Nuevo evento' : editable ? 'Editar evento' : 'Detalles del evento';
     els.readonlyNote.hidden = !fcEvent || editable;
     els.recurringNote.hidden = !isInstance;
+    els.shiftNote.hidden = g?.extendedProperties?.private?.turnosSync !== '1';
     els.repeatField.hidden = isInstance || isSeriesMaster;
     els.seriesField.hidden = !isInstance || !editable;
     els.deleteBtn.hidden = !fcEvent || !editable;
@@ -646,6 +655,247 @@
     calendar.render();
   }
 
+  // ── Sincronización de turnos de trabajo ────────────────────
+  //  Lee la planificación (CSV publicado), coge SOLO la fila del operador
+  //  configurado y la refleja en el calendario: crea los turnos nuevos,
+  //  corrige los cambiados y borra los que ya no están en el cuadrante.
+  //  Cada turno lleva una marca privada (turnosSync) para no tocar nunca
+  //  tus otros eventos ni duplicar turnos al sincronizar varias veces.
+  const SHIFT_TYPES = {
+    MA: { label: 'Mañana', place: 'Arteixo', start: '07:00', end: '15:00', colorId: '5' },
+    ML: { label: 'Mañana', place: 'Laracha', start: '07:00', end: '15:00', colorId: '5' },
+    TA: { label: 'Tarde', place: 'Arteixo', start: '15:00', end: '23:00', colorId: '6' },
+    TL: { label: 'Tarde', place: 'Laracha', start: '15:00', end: '23:00', colorId: '6' },
+    NA: { label: 'Noche', place: 'Arteixo', start: '23:00', end: '07:00', colorId: '9' },
+    NL: { label: 'Noche', place: 'Laracha', start: '23:00', end: '07:00', colorId: '9' },
+  };
+  const MONTHS_ES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+  const SHIFT_TAG = 'turnosSync';
+  const normName = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const fmtHuman = (iso) => parseDate(iso).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+  let shiftPlan = null;
+
+  /** Formato del CSV: fila 1 = año + meses, fila 2 = días de la semana,
+   *  fila 3 = número de día, resto = una fila por operador con códigos. */
+  function parseShiftsCsv(text, operator) {
+    const rows = text.replace(/^﻿/, '').split(/\r?\n/).map((l) => l.split(';'));
+    if (rows.length < 4) throw new Error('El archivo de turnos no tiene el formato esperado.');
+    const monthRow = rows[0];
+    const dayRow = rows[2];
+    let year = parseInt(monthRow[0], 10) || new Date().getFullYear();
+    let month = -1;
+    const colDate = {};
+    for (let c = 1; c < monthRow.length; c++) {
+      const mi = MONTHS_ES.indexOf((monthRow[c] || '').trim().toUpperCase());
+      if (mi >= 0) {
+        if (month >= 0 && mi < month) year++; // diciembre → enero
+        month = mi;
+      }
+      const day = parseInt(dayRow[c], 10);
+      if (month >= 0 && day >= 1 && day <= 31) colDate[c] = `${year}-${pad(month + 1)}-${pad(day)}`;
+    }
+
+    const row = rows.find((r) => normName(r[0]) === normName(operator));
+    if (!row) throw new Error(`No encuentro al operador «${operator}» en la planificación.`);
+
+    const shifts = [];
+    const unknown = new Set();
+    let undated = 0;
+    for (let c = 1; c < row.length; c++) {
+      const code = (row[c] || '').trim().toUpperCase();
+      if (!code) continue;
+      if (!colDate[c]) { undated++; continue; }
+      if (!SHIFT_TYPES[code]) { unknown.add(code); continue; }
+      shifts.push({ date: colDate[c], code });
+    }
+    return { shifts, unknown: [...unknown], undated };
+  }
+
+  function shiftEventBody(s, tz) {
+    const t = SHIFT_TYPES[s.code];
+    const endDate = t.end <= t.start ? fmtDate(addDays(parseDate(s.date), 1)) : s.date; // noche: acaba al día siguiente
+    return {
+      summary: `Turno ${t.label} · ${t.place}`,
+      location: t.place,
+      description: `Turno ${s.code}: ${t.label} ${t.place}, de ${t.start} a ${t.end}.\nSincronizado desde la planificación de operaciones. Si lo cambias a mano, la próxima sincronización puede sobrescribirlo.`,
+      colorId: t.colorId,
+      start: { dateTime: `${s.date}T${t.start}:00`, timeZone: tz },
+      end: { dateTime: `${endDate}T${t.end}:00`, timeZone: tz },
+      extendedProperties: {
+        private: { [SHIFT_TAG]: '1', turnoDate: s.date, turnoCode: s.code, turnoOperador: CFG.TURNOS.OPERADOR },
+      },
+    };
+  }
+
+  async function listSyncedShiftEvents(fromDate) {
+    const items = [];
+    let pageToken;
+    do {
+      const data = await api(calPath(), {
+        query: {
+          privateExtendedProperty: `${SHIFT_TAG}=1`,
+          timeMin: fromDate ? addDays(parseDate(fromDate), -1).toISOString() : undefined,
+          singleEvents: 'true',
+          maxResults: 2500,
+          pageToken,
+        },
+      });
+      items.push(...(data.items || []));
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return items.filter((e) => {
+      const d = e.extendedProperties?.private?.turnoDate || '';
+      return e.status !== 'cancelled' && (!fromDate || d >= fromDate);
+    });
+  }
+
+  async function buildShiftPlan() {
+    const T = CFG.TURNOS;
+    let text;
+    try {
+      const url = T.CSV_URL + (T.CSV_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error();
+      text = await res.text();
+    } catch {
+      throw new Error('No he podido leer la planificación de turnos. Comprueba la dirección en config.js o tu conexión.');
+    }
+    const parsed = parseShiftsCsv(text, T.OPERADOR);
+    const fromDate = T.SOLO_DESDE_HOY === false ? null : fmtDate(new Date());
+    const wanted = parsed.shifts.filter((s) => !fromDate || s.date >= fromDate);
+    const existing = await listSyncedShiftEvents(fromDate);
+
+    const byDate = new Map();
+    for (const e of existing) {
+      const d = e.extendedProperties.private.turnoDate;
+      if (!byDate.has(d)) byDate.set(d, []);
+      byDate.get(d).push(e);
+    }
+
+    const tz = T.ZONA_HORARIA || 'Europe/Madrid';
+    const plan = { create: [], update: [], remove: [], same: 0, wanted, fromDate, ...parsed };
+    for (const s of wanted) {
+      const [first, ...dups] = byDate.get(s.date) || [];
+      byDate.delete(s.date);
+      plan.remove.push(...dups);
+      const body = shiftEventBody(s, tz);
+      if (!first) plan.create.push(body);
+      else if (first.extendedProperties.private.turnoCode !== s.code) plan.update.push({ id: first.id, body });
+      else plan.same++;
+    }
+    for (const list of byDate.values()) plan.remove.push(...list); // ya no están en el cuadrante
+    return plan;
+  }
+
+  function renderShiftPlan(plan) {
+    const calName = els.calSelect.selectedOptions[0]?.textContent || 'tu calendario';
+    const nothing = !plan.create.length && !plan.update.length && !plan.remove.length;
+    const next = plan.wanted.slice(0, 6).map((s) => {
+      const t = SHIFT_TYPES[s.code];
+      return `<li><strong>${esc(fmtHuman(s.date))}</strong> · ${t.label} ${t.place} <span class="muted">(${t.start}–${t.end})</span></li>`;
+    }).join('');
+    els.shiftsBody.innerHTML = `
+      <p>Operador: <strong>${esc(CFG.TURNOS.OPERADOR)}</strong><br>Calendario: <strong>${esc(calName)}</strong></p>
+      <p class="muted">${plan.fromDate ? 'Turnos de hoy en adelante' : 'Todos los turnos'} en el cuadrante: <strong>${plan.wanted.length}</strong></p>
+      <ul class="plan-list">
+        <li><span>Nuevos</span><strong>${plan.create.length}</strong></li>
+        <li><span>Cambiados en el cuadrante</span><strong>${plan.update.length}</strong></li>
+        <li><span>Ya no están en el cuadrante (se borran)</span><strong>${plan.remove.length}</strong></li>
+        <li><span>Sin cambios</span><strong>${plan.same}</strong></li>
+      </ul>
+      ${next ? `<p class="muted">Próximos turnos:</p><ul class="next-list">${next}</ul>` : ''}
+      ${plan.unknown.length ? `<p class="note">Códigos que no reconozco y se ignoran: ${esc(plan.unknown.join(', '))}</p>` : ''}
+      ${plan.undated ? `<p class="note">${plan.undated} turno(s) al final del cuadrante no tienen fecha en el archivo y no se importan.</p>` : ''}
+      ${nothing ? '<p class="note">Todo está al día: no hay nada que cambiar.</p>' : ''}`;
+    els.shiftsConfirm.disabled = nothing;
+    els.shiftsConfirm.textContent = 'Sincronizar';
+  }
+
+  async function withRetry(fn, tries = 4) {
+    for (let i = 0; ; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        const retryable = err.status === 429 || err.status >= 500 || (err.status === 403 && /rateLimit/i.test(err.reason || ''));
+        if (!retryable || i >= tries - 1) throw err;
+        await new Promise((r) => setTimeout(r, 800 * 2 ** i));
+      }
+    }
+  }
+
+  async function applyShiftPlan(plan) {
+    const ops = [
+      ...plan.remove.map((e) => () => api(eventPath(e.id), { method: 'DELETE' })
+        .catch((err) => { if (err.status !== 404 && err.status !== 410) throw err; })),
+      ...plan.update.map((u) => () => api(eventPath(u.id), { method: 'PATCH', body: u.body })),
+      ...plan.create.map((b) => () => api(calPath(), { method: 'POST', body: b })),
+    ];
+    const total = ops.length;
+    let done = 0;
+    let failed = 0;
+    const worker = async () => {
+      while (ops.length) {
+        const op = ops.shift();
+        try {
+          await withRetry(op);
+        } catch (err) {
+          if (err instanceof AuthError) throw err;
+          failed++;
+          console.error(err);
+        }
+        done++;
+        els.shiftsConfirm.textContent = `Sincronizando ${done}/${total}…`;
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    return { total, failed };
+  }
+
+  els.shiftsBtn.addEventListener('click', () => {
+    const tokenReady = ensureToken(true); // dentro del clic: evita bloqueo del pop-up
+    shiftPlan = null;
+    els.shiftsBody.innerHTML = '<p class="muted">Leyendo la planificación y tu calendario…</p>';
+    els.shiftsConfirm.disabled = true;
+    els.shiftsConfirm.textContent = 'Sincronizar';
+    els.shiftsDialog.showModal();
+    (async () => {
+      try {
+        await tokenReady;
+        shiftPlan = await buildShiftPlan();
+        renderShiftPlan(shiftPlan);
+      } catch (err) {
+        console.error(err);
+        els.shiftsBody.innerHTML = `<p class="note error-note">${esc(err instanceof AuthError ? 'Sesión caducada: pulsa «Reconectar» y vuelve a intentarlo.' : err.message)}</p>`;
+      }
+    })();
+  });
+
+  els.shiftsConfirm.addEventListener('click', () => {
+    if (!shiftPlan) return;
+    const plan = shiftPlan;
+    shiftPlan = null;
+    const tokenReady = ensureToken(true);
+    els.shiftsConfirm.disabled = true;
+    (async () => {
+      try {
+        await tokenReady;
+        const { total, failed } = await applyShiftPlan(plan);
+        els.shiftsDialog.close();
+        toast(failed
+          ? `Turnos sincronizados, pero ${failed} cambio(s) fallaron. Pulsa «Turnos» otra vez para completarlo.`
+          : `Turnos sincronizados (${total} cambio${total === 1 ? '' : 's'}).`, failed ? 'error' : 'ok');
+      } catch (err) {
+        els.shiftsDialog.close();
+        handleError(err);
+      } finally {
+        calendar?.refetchEvents();
+      }
+    })();
+  });
+
+  els.shiftsDialog.querySelectorAll('[data-close-shifts]').forEach((b) => b.addEventListener('click', () => els.shiftsDialog.close()));
+  els.shiftsDialog.addEventListener('click', (e) => { if (e.target === els.shiftsDialog) els.shiftsDialog.close(); });
+
   // ── Arranque y sesión ──────────────────────────────────────
   async function enterApp() {
     els.loginScreen.hidden = true;
@@ -717,7 +967,7 @@
 
   // Refresco automático: trae cambios hechos desde otros dispositivos
   function autoRefresh() {
-    if (!calendar || els.app.hidden || els.dialog.open) return;
+    if (!calendar || els.app.hidden || els.dialog.open || els.shiftsDialog.open) return;
     if (document.visibilityState !== 'visible') return;
     if (!tokenValid()) return showReconnect();
     calendar.refetchEvents();
@@ -727,6 +977,7 @@
 
   async function boot() {
     buildColorOptions();
+    els.shiftsBtn.hidden = !(CFG.TURNOS && CFG.TURNOS.CSV_URL && CFG.TURNOS.OPERADOR);
 
     if (!CFG.CLIENT_ID || CFG.CLIENT_ID.startsWith('TU_CLIENT_ID')) {
       showLogin('Falta configurar el CLIENT_ID en config.js (mira el README).');
