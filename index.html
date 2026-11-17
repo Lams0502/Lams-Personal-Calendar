@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lams Personal Calendar</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Pantalla de acceso -->
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="login-logo">📅</div>
+      <h1>Mi calendario</h1>
+      <p class="muted">Crea, modifica y elimina eventos. Todo se guarda directamente en tu Google Calendar.</p>
+      <button id="login-btn" class="btn btn-primary btn-lg" type="button" disabled>Conectar con Google</button>
+      <p id="login-msg" class="login-msg"></p>
+    </div>
+  </section>
+
+  <!-- Aplicación -->
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="brand">📅 Mi calendario</span>
+        <label class="cal-picker">
+          <span class="sr-only">Calendario</span>
+          <span id="cal-dot" class="cal-dot"></span>
+          <select id="calendar-select" title="Calendario"></select>
+        </label>
+      </div>
+      <div class="topbar-right">
+        <span id="sync-status" class="sync-status" title="Estado de sincronización"></span>
+        <button id="refresh-btn" class="btn btn-ghost" type="button" title="Sincronizar ahora">⟳</button>
+        <button id="new-btn" class="btn btn-primary" type="button" title="Nuevo evento (tecla N)">+ Nuevo</button>
+        <button id="logout-btn" class="btn btn-ghost" type="button" title="Desconectar cuenta">Salir</button>
+      </div>
+    </header>
+
+    <div id="reconnect-bar" class="reconnect-bar" hidden>
+      <span>Tu sesión de Google ha caducado (dura 1 hora).</span>
+      <button id="reconnect-btn" class="btn btn-primary btn-sm" type="button">Reconectar</button>
+    </div>
+
+    <main class="calendar-wrap">
+      <div id="calendar"></div>
+    </main>
+  </div>
+
+  <!-- Formulario de evento -->
+  <dialog id="event-dialog" class="event-dialog">
+    <form id="event-form" method="dialog" novalidate>
+      <header class="dialog-head">
+        <h2 id="dialog-title">Nuevo evento</h2>
+        <button type="button" class="btn btn-ghost btn-icon" data-close aria-label="Cerrar">✕</button>
+      </header>
+
+      <div class="dialog-body">
+        <p id="readonly-note" class="note" hidden>Este evento es de solo lectura (no eres el organizador o el calendario no te permite editar).</p>
+
+        <label class="field">
+          <span>Título</span>
+          <input name="title" type="text" placeholder="Añade un título" autocomplete="off" />
+        </label>
+
+        <label class="check">
+          <input name="allDay" type="checkbox" />
+          <span>Todo el día</span>
+        </label>
+
+        <div class="row">
+          <label class="field">
+            <span>Inicio</span>
+            <input name="startDate" type="date" required />
+          </label>
+          <label class="field time-field">
+            <span>&nbsp;</span>
+            <input name="startTime" type="time" step="300" />
+          </label>
+        </div>
+        <div class="row">
+          <label class="field">
+            <span>Fin</span>
+            <input name="endDate" type="date" required />
+          </label>
+          <label class="field time-field">
+            <span>&nbsp;</span>
+            <input name="endTime" type="time" step="300" />
+          </label>
+        </div>
+
+        <label class="field" id="repeat-field">
+          <span>Repetir</span>
+          <select name="repeat">
+            <option value="">No se repite</option>
+            <option value="DAILY">Cada día</option>
+            <option value="WEEKLY">Cada semana</option>
+            <option value="MONTHLY">Cada mes</option>
+            <option value="YEARLY">Cada año</option>
+          </select>
+        </label>
+        <p id="recurring-note" class="note" hidden>Evento periódico: los cambios se aplican solo a esta repetición.</p>
+
+        <label class="field">
+          <span>Ubicación</span>
+          <input name="location" type="text" placeholder="Añade una ubicación" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>Descripción</span>
+          <textarea name="description" rows="3" placeholder="Añade una descripción"></textarea>
+        </label>
+
+        <fieldset class="field colors">
+          <legend>Color</legend>
+          <div id="color-options" class="color-options"></div>
+        </fieldset>
+
+        <label class="check" id="series-field" hidden>
+          <input name="deleteSeries" type="checkbox" />
+          <span>Al eliminar, borrar <strong>toda la serie</strong></span>
+        </label>
+
+        <a id="open-in-google" class="open-link" href="#" target="_blank" rel="noopener" hidden>Abrir en Google Calendar ↗</a>
+      </div>
+
+      <footer class="dialog-foot">
+        <button id="delete-btn" type="button" class="btn btn-danger">Eliminar</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+        <button id="save-btn" type="submit" class="btn btn-primary">Guardar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Librerías -->
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.15/locales/es.global.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <!-- App -->
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
