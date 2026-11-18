@@ -88,6 +88,11 @@
     shiftsDialog: $('#shifts-dialog'),
     shiftsBody: $('#shifts-body'),
     shiftsConfirm: $('#shifts-confirm'),
+    pop: $('#event-pop'),
+    meetBtn: $('#meet-btn'),
+    nextShift: $('#next-shift'),
+    meetLink: $('#meet-link'),
+    notifyField: $('#notify-field'),
   };
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const f = els.form.elements;
@@ -323,6 +328,7 @@
     els.calDot.style.background = calendarColor;
     els.newBtn.disabled = !calendarWritable;
     els.shiftsBtn.disabled = !calendarWritable;
+    els.meetBtn.disabled = !calendarWritable;
     try { localStorage.setItem(LS.calendar, currentCalendarId); } catch { /* ignorar */ }
     if (calendar) {
       calendar.setOption('eventColor', calendarColor);
@@ -331,16 +337,29 @@
   }
 
   // ── Conversión Google ⇄ FullCalendar ───────────────────────
-  function isEditable(g) {
-    if (!calendarWritable) return false;
-    if (g.eventType && g.eventType !== 'default') return false; // cumpleaños, Gmail, fuera de oficina…
-    const isOrganizer = !g.organizer || g.organizer.self === true;
-    return isOrganizer || g.guestsCanModify === true;
+  const isInvite = (g) => !!g.organizer && g.organizer.self !== true;
+  const selfAttendee = (g) => (g.attendees || []).find((a) => a.self);
+  const shiftOf = (g) => SHIFT_TYPES[g?.extendedProperties?.private?.turnoCode] || null;
+
+  /**
+   * Qué puedes hacer con un evento:
+   *  'full'    → editar todo, mover y eliminar (eres el organizador)
+   *  'limited' → quitarlo de tu calendario y responder (invitaciones, eventos de Gmail…)
+   *  'none'    → solo ver (calendario de solo lectura, cumpleaños)
+   */
+  function permission(g) {
+    if (!calendarWritable || g.eventType === 'birthday') return 'none';
+    const isDefault = !g.eventType || g.eventType === 'default';
+    if (isDefault && (!isInvite(g) || g.guestsCanModify === true)) return 'full';
+    return 'limited';
   }
+  const isEditable = (g) => permission(g) === 'full';
 
   function toFcEvent(g) {
     const allDay = !!g.start?.date;
-    const color = g.colorId ? GOOGLE_COLORS[g.colorId]?.bg : undefined;
+    const shift = shiftOf(g);
+    const color = !shift && g.colorId ? GOOGLE_COLORS[g.colorId]?.bg : undefined;
+    const me = selfAttendee(g);
     return {
       id: g.id,
       title: g.summary || '(Sin título)',
@@ -350,9 +369,33 @@
       backgroundColor: color,
       borderColor: color,
       editable: isEditable(g),
-      classNames: g.recurringEventId ? ['is-recurring'] : [],
+      classNames: [
+        g.recurringEventId && 'is-recurring',
+        shift && `shift shift-${shift.kind}`,
+        g.hangoutLink && 'has-meet',
+        isInvite(g) && 'is-invite',
+        me?.responseStatus === 'declined' && 'is-declined',
+        me?.responseStatus === 'needsAction' && 'is-pending',
+      ].filter(Boolean),
       extendedProps: { google: g },
     };
+  }
+
+  /** Contenido visual de cada evento (icono + hora + título). */
+  function renderEventContent(arg) {
+    const g = arg.event.extendedProps.google || {};
+    const shift = shiftOf(g);
+    const icon = shift ? shift.icon : g.hangoutLink ? '🎥' : '';
+    const iconHtml = icon ? `<span class="ev-ico">${icon}</span>` : '';
+    const title = esc(shift ? `${shift.label} · ${shift.place}` : arg.event.title);
+    const time = arg.timeText ? `<span class="ev-time">${esc(arg.timeText)}</span>` : '';
+    const type = arg.view.type;
+    if (type.startsWith('list')) return { html: `${iconHtml}<span class="ev-title">${title}</span>` };
+    if (type.startsWith('timeGrid')) {
+      const sub = shift ? `${shift.start}–${shift.end}` : esc(g.location || '');
+      return { html: `<div class="ev ev-tg"><div class="ev-title">${iconHtml}${title}</div>${time}${sub && !shift ? `<div class="ev-sub">${sub}</div>` : ''}</div>` };
+    }
+    return { html: `<div class="ev">${iconHtml}${time}<span class="ev-title">${title}</span></div>` };
   }
 
   /** Construye start/end en formato Google. Incluye `null` explícitos para
@@ -404,7 +447,8 @@
    *  - Nuevo: openDialog({ start, end, allDay })
    *  - Editar: openDialog({ fcEvent })
    */
-  function openDialog({ fcEvent = null, start, end, allDay = false } = {}) {
+  function openDialog({ fcEvent = null, start, end, allDay = false, meet = false, title = '' } = {}) {
+    closePopover();
     els.form.reset();
     deleteArmed = false;
     els.deleteBtn.textContent = 'Eliminar';
@@ -426,7 +470,14 @@
     // formulario mostramos el último día incluido.
     const endShown = allDay ? addDays(end, -1) : end;
 
-    f.title.value = g?.summary || '';
+    f.title.value = g?.summary || title;
+    f.meet.checked = g ? !!(g.hangoutLink || g.conferenceData) : meet;
+    f.guests.value = (g?.attendees || []).filter((a) => !a.self && !a.resource).map((a) => a.email).join(', ');
+    f.notify.checked = true;
+    const meetA = els.meetLink.querySelector('a');
+    els.meetLink.hidden = !g?.hangoutLink;
+    if (g?.hangoutLink) { meetA.href = g.hangoutLink; meetA.textContent = g.hangoutLink.replace(/^https?:\/\//, ''); }
+    syncNotifyField();
     f.allDay.checked = allDay;
     f.startDate.value = fmtDate(start);
     f.endDate.value = fmtDate(endShown < start ? start : endShown);
@@ -441,7 +492,7 @@
     const isSeriesMaster = !!g?.recurrence;
     const editable = fcEvent ? isEditable(g) : calendarWritable;
 
-    els.dialogTitle.textContent = !fcEvent ? 'Nuevo evento' : editable ? 'Editar evento' : 'Detalles del evento';
+    els.dialogTitle.textContent = !fcEvent ? (meet ? 'Nueva reunión de Google Meet' : 'Nuevo evento') : editable ? 'Editar evento' : 'Detalles del evento';
     els.readonlyNote.hidden = !fcEvent || editable;
     els.recurringNote.hidden = !isInstance;
     els.shiftNote.hidden = g?.extendedProperties?.private?.turnosSync !== '1';
@@ -499,7 +550,33 @@
     if (!els.repeatField.hidden && f.repeat.value) {
       body.recurrence = [`RRULE:FREQ=${f.repeat.value}`];
     }
-    return body;
+
+    // Invitados: conserva las respuestas de los que ya estaban.
+    const orig = editing?.google || null;
+    const emails = [...new Set(f.guests.value.split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean))];
+    const bad = emails.find((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    if (bad) throw new Error(`Este email no es válido: ${bad}`);
+    const prev = new Map((orig?.attendees || []).map((a) => [a.email.toLowerCase(), a]));
+    const keep = (orig?.attendees || []).filter((a) => a.self || a.resource);
+    const attendees = [...keep, ...emails.filter((e) => !keep.some((k) => k.email.toLowerCase() === e)).map((e) => prev.get(e) || { email: e })];
+    if (emails.length || orig?.attendees?.length) body.attendees = attendees;
+
+    // Google Meet
+    const hadMeet = !!(orig?.hangoutLink || orig?.conferenceData);
+    if (f.meet.checked && !hadMeet) {
+      body.conferenceData = { createRequest: { requestId: uuid(), conferenceSolutionKey: { type: 'hangoutsMeet' } } };
+    } else if (!f.meet.checked && hadMeet) {
+      body.conferenceData = null;
+    }
+
+    const notify = emails.length > 0 && f.notify.checked;
+    return { body, query: { conferenceDataVersion: 1, sendUpdates: notify ? 'all' : 'none' }, withMeet: f.meet.checked && !hadMeet };
+  }
+
+  const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+  function syncNotifyField() {
+    els.notifyField.hidden = !f.guests.value.trim();
   }
 
   function setBusy(busy) {
@@ -520,8 +597,9 @@
   // Crear / guardar
   els.form.addEventListener('submit', (e) => {
     e.preventDefault();
-    let body;
-    try { body = readForm(); } catch (err) { return toast(err.message, 'error'); }
+    let form;
+    try { form = readForm(); } catch (err) { return toast(err.message, 'error'); }
+    const { body, query, withMeet } = form;
 
     // Pedir el token AQUÍ, sincrónicamente dentro del clic (evita bloqueo del pop-up).
     const tokenReady = ensureToken(true);
@@ -529,13 +607,16 @@
     (async () => {
       try {
         await tokenReady;
+        let saved;
         if (editing) {
-          await api(eventPath(editing.google.id), { method: 'PATCH', body });
-          toast('Evento actualizado');
+          saved = await api(eventPath(editing.google.id), { method: 'PATCH', body, query });
         } else {
-          await api(calPath(), { method: 'POST', body: stripNulls(body) });
-          toast('Evento creado');
+          saved = await api(calPath(), { method: 'POST', body: stripNulls(body), query });
         }
+        const invited = query.sendUpdates === 'all' ? ' · invitaciones enviadas' : '';
+        toast(withMeet && saved?.hangoutLink
+          ? `Reunión de Meet lista${invited}`
+          : `${editing ? 'Evento actualizado' : 'Evento creado'}${invited}`);
         closeDialog();
         calendar.refetchEvents();
       } catch (err) {
@@ -555,14 +636,13 @@
       return;
     }
     const g = editing.google;
-    const id = f.deleteSeries.checked && g.recurringEventId ? g.recurringEventId : g.id;
-    const tokenReady = ensureToken(true);
+    const scope = f.deleteSeries.checked && g.recurringEventId ? 'series' : 'one';
+    const done = deleteEvent(g, scope); // dentro del clic
     setBusy(true);
     (async () => {
       try {
-        await tokenReady;
-        await api(eventPath(id), { method: 'DELETE' });
-        toast(id === g.id ? 'Evento eliminado' : 'Serie eliminada');
+        const res = await done;
+        toast(res === 'declined' ? 'Invitación rechazada' : scope === 'series' ? 'Serie eliminada' : 'Evento eliminado');
         closeDialog();
         calendar.refetchEvents();
       } catch (err) {
@@ -578,6 +658,15 @@
   els.dialog.addEventListener('cancel', () => { editing = null; calendar?.unselect(); });
   els.dialog.addEventListener('click', (e) => { if (e.target === els.dialog) closeDialog(); });
   f.allDay.addEventListener('change', syncTimeInputs);
+  f.guests.addEventListener('input', syncNotifyField);
+  els.form.querySelector('[data-copy-meet]').addEventListener('click', () => {
+    copyText(els.meetLink.querySelector('a').href);
+  });
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); toast('Enlace copiado'); }
+    catch { toast('No se pudo copiar el enlace', 'error'); }
+  }
   f.startDate.addEventListener('change', () => {
     if (f.endDate.value < f.startDate.value) f.endDate.value = f.startDate.value;
   });
@@ -592,7 +681,9 @@
     (async () => {
       try {
         await tokenReady;
-        await api(eventPath(ev.id), { method: 'PATCH', body: googleTimes({ start, end, allDay }) });
+        const g = ev.extendedProps.google || {};
+        const hasGuests = (g.attendees || []).some((a) => !a.self && !a.resource);
+        await api(eventPath(ev.id), { method: 'PATCH', body: googleTimes({ start, end, allDay }), query: { sendUpdates: hasGuests ? 'all' : 'none' } });
         toast(info.event.extendedProps.google?.recurringEventId ? 'Repetición movida' : 'Evento movido');
         calendar.refetchEvents();
       } catch (err) {
@@ -617,14 +708,32 @@
       footerToolbar: narrow ? { center: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' } : false,
       nowIndicator: true,
       navLinks: true,
-      dayMaxEvents: true,
+      dayMaxEvents: 4,
       selectable: calendarWritable,
       selectMirror: true,
       editable: true,
       eventColor: calendarColor,
-      scrollTime: '08:00:00',
+      eventDisplay: 'block',
+      // Un evento que acaba antes de las 09:00 del día siguiente (p. ej. un
+      // turno de noche 23:00–07:00) se pinta solo en el día en que empieza.
+      nextDayThreshold: '09:00:00',
+      scrollTime: '07:00:00',
+      slotDuration: '00:30:00',
+      expandRows: true,
+      dayHeaderFormat: narrow ? { weekday: 'narrow' } : undefined,
       eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
       slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+      eventContent: renderEventContent,
+      eventDidMount: (arg) => {
+        arg.el.title = arg.event.title;
+        // En la agenda, un turno de noche mostraría "23:00 - 00:00": ponemos el horario real.
+        const { start, end, allDay } = arg.event;
+        const cell = arg.el.querySelector('.fc-list-event-time');
+        if (cell && !allDay && end && fmtDate(start) !== fmtDate(end)) {
+          cell.textContent = `${fmtClock(start)} - ${fmtClock(end)}`;
+        }
+      },
+      datesSet: () => closePopover(),
 
       events: async (info, success, failure) => {
         setSync('loading');
@@ -632,6 +741,7 @@
           const items = await listEvents(info.start, info.end);
           success(items.map(toFcEvent));
           setSync('ok');
+          updateNextShift();
         } catch (err) {
           failure(err);
           setSync(err instanceof AuthError ? 'offline' : 'error');
@@ -640,6 +750,8 @@
       },
 
       select: (info) => {
+        // Un clic fuera de la tarjeta solo la cierra (como en Google Calendar).
+        if (!els.pop.hidden || Date.now() - lastPopClose < 500) { closePopover(); calendar.unselect(); return; }
         let { start, end } = info;
         // Un clic en la vista semana/día selecciona 30 min: lo ampliamos a 1 h.
         if (!info.allDay && end - start <= 30 * 60000) end = addMinutes(start, 60);
@@ -647,13 +759,253 @@
       },
       eventClick: (info) => {
         info.jsEvent.preventDefault();
-        openDialog({ fcEvent: info.event });
+        info.jsEvent.stopPropagation();
+        openPopover(info.event, info.el);
       },
       eventDrop: onMoveOrResize,
       eventResize: onMoveOrResize,
     });
     calendar.render();
   }
+
+  // ── Tarjeta de evento (popover) ────────────────────────────
+  let popEvent = null;
+  let lastPopClose = 0;
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const fmtClock = (d) => d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+  function fmtRange(ev) {
+    const s = ev.start;
+    const long = { weekday: 'long', day: 'numeric', month: 'long' };
+    if (ev.allDay) {
+      const last = ev.end ? addDays(ev.end, -1) : s;
+      return fmtDate(last) === fmtDate(s)
+        ? `${cap(s.toLocaleDateString('es-ES', long))} · Todo el día`
+        : `${cap(s.toLocaleDateString('es-ES', long))} – ${last.toLocaleDateString('es-ES', long)}`;
+    }
+    const e = ev.end || addMinutes(s, 60);
+    const nextDay = fmtDate(s) !== fmtDate(e) ? ` <span class="muted">(${e.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })})</span>` : '';
+    return `${cap(s.toLocaleDateString('es-ES', long))}<br><strong>${fmtClock(s)} – ${fmtClock(e)}</strong>${nextDay}`;
+  }
+
+  const plainText = (html) => {
+    const d = document.createElement('div');
+    d.innerHTML = String(html || '').replace(/<br\s*\/?>/gi, '\n');
+    return d.textContent.trim();
+  };
+
+  function eventColor(fcEvent) {
+    const g = fcEvent.extendedProps.google || {};
+    const shift = shiftOf(g);
+    if (shift) return { morning: '#f59e0b', evening: '#f97316', night: '#6366f1' }[shift.kind];
+    return (g.colorId && GOOGLE_COLORS[g.colorId]?.bg) || calendarColor;
+  }
+
+  function renderPopover(confirming = false) {
+    const ev = popEvent;
+    const g = ev.extendedProps.google || {};
+    const perm = permission(g);
+    const shift = shiftOf(g);
+    const me = selfAttendee(g);
+    const guests = (g.attendees || []).filter((a) => !a.resource);
+    const invite = isInvite(g);
+    const organizerName = g.organizer?.displayName || g.organizer?.email || '';
+    const desc = plainText(g.description);
+    const deleteLabel = invite ? 'Quitar de mi calendario' : 'Eliminar';
+    const notifyGuests = !invite && guests.some((a) => !a.self);
+    const rsvp = (status, label) => `<button type="button" class="rsvp-btn${me?.responseStatus === status ? ' active' : ''}" data-rsvp="${status}">${label}</button>`;
+
+    let actions;
+    if (confirming) {
+      actions = `
+        <div class="pop-confirm">
+          <span>${invite ? '¿Quitar este evento de tu calendario?' : notifyGuests ? '¿Eliminar y avisar a los invitados?' : '¿Eliminar este evento?'}</span>
+          <div class="pop-confirm-btns">
+            <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-delete">Cancelar</button>
+            ${g.recurringEventId && !invite ? '<button type="button" class="btn btn-danger btn-sm" data-action="confirm-delete" data-scope="series">Toda la serie</button>' : ''}
+            <button type="button" class="btn btn-danger-solid btn-sm" data-action="confirm-delete" data-scope="one">${g.recurringEventId && !invite ? 'Solo este' : deleteLabel}</button>
+          </div>
+        </div>`;
+    } else {
+      actions = `
+        <div class="pop-actions">
+          ${perm === 'full' ? '<button type="button" class="btn btn-ghost btn-sm" data-action="edit">✏️ Editar</button>' : ''}
+          ${perm !== 'none' ? `<button type="button" class="btn btn-danger btn-sm" data-action="delete">🗑️ ${deleteLabel}</button>` : ''}
+          <span class="spacer"></span>
+          ${g.htmlLink ? `<a class="btn btn-ghost btn-sm" href="${esc(g.htmlLink)}" target="_blank" rel="noopener" title="Abrir en Google Calendar">Google ↗</a>` : ''}
+        </div>`;
+    }
+
+    els.pop.style.setProperty('--ev-color', eventColor(ev));
+    els.pop.innerHTML = `
+      <div class="pop-head">
+        <span class="pop-badge">${shift ? shift.icon : g.hangoutLink ? '🎥' : ''}</span>
+        <h3>${esc(ev.title)}</h3>
+        <button type="button" class="btn btn-ghost btn-icon" data-action="close" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="pop-body">
+        <div class="pop-row"><span class="pop-ico">🕒</span><div>${fmtRange(ev)}</div></div>
+        ${shift ? `<div class="pop-row"><span class="pop-ico">🏭</span><div>Turno <strong>${esc(g.extendedProperties.private.turnoCode)}</strong> · sincronizado del cuadrante</div></div>` : ''}
+        ${g.location && !shift ? `<div class="pop-row"><span class="pop-ico">📍</span><div>${esc(g.location)}</div></div>` : ''}
+        ${g.hangoutLink ? `
+          <div class="pop-row pop-meet">
+            <a class="btn btn-meet btn-sm" href="${esc(g.hangoutLink)}" target="_blank" rel="noopener">🎥 Unirse con Google Meet</a>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="copy-meet">Copiar enlace</button>
+          </div>` : ''}
+        ${guests.length ? `<div class="pop-row"><span class="pop-ico">👥</span><div>${guests.length} invitado${guests.length === 1 ? '' : 's'}${invite && organizerName ? ` · organiza <strong>${esc(organizerName)}</strong>` : ''}</div></div>` : ''}
+        ${invite && me && perm !== 'none' ? `
+          <div class="pop-rsvp"><span>¿Asistirás?</span>${rsvp('accepted', 'Sí')}${rsvp('declined', 'No')}${rsvp('tentative', 'Quizás')}</div>` : ''}
+        ${desc && !shift ? `<div class="pop-desc">${esc(desc.length > 280 ? desc.slice(0, 280) + '…' : desc)}</div>` : ''}
+        ${g.eventType === 'fromGmail' ? '<p class="note">Evento creado automáticamente desde Gmail: puedes quitarlo, pero no editarlo.</p>' : ''}
+      </div>
+      ${actions}`;
+  }
+
+  function openPopover(fcEvent, anchor) {
+    popEvent = fcEvent;
+    renderPopover();
+    const pop = els.pop;
+    pop.hidden = false;
+    pop.classList.remove('show');
+    if (window.matchMedia('(max-width: 700px)').matches) {
+      pop.classList.add('sheet');
+      pop.style.left = pop.style.top = '';
+    } else {
+      pop.classList.remove('sheet');
+      const r = anchor.getBoundingClientRect();
+      const pw = pop.offsetWidth;
+      const ph = pop.offsetHeight;
+      const m = 10;
+      let left = r.right + m;
+      let top = r.top;
+      if (left + pw > innerWidth - m) left = r.left - pw - m;
+      if (left < m) { left = Math.min(Math.max(m, r.left), innerWidth - pw - m); top = r.bottom + m; }
+      if (top + ph > innerHeight - m) top = Math.max(m, innerHeight - ph - m);
+      pop.style.left = `${left}px`;
+      pop.style.top = `${Math.max(m, top)}px`;
+    }
+    requestAnimationFrame(() => pop.classList.add('show'));
+  }
+
+  function closePopover() {
+    if (els.pop.hidden) return;
+    els.pop.hidden = true;
+    els.pop.classList.remove('show');
+    popEvent = null;
+    lastPopClose = Date.now();
+  }
+
+  /** Elimina un evento. Si es una invitación, lo quita de tu calendario
+   *  (y si Google no lo permite, la rechaza). Llamar dentro del clic. */
+  function deleteEvent(g, scope = 'one') {
+    const invite = isInvite(g);
+    const id = scope === 'series' && g.recurringEventId ? g.recurringEventId : g.id;
+    const notify = !invite && (g.attendees || []).some((a) => !a.self && !a.resource);
+    return api(eventPath(id), { method: 'DELETE', query: { sendUpdates: notify ? 'all' : 'none' } })
+      .then(() => 'deleted')
+      .catch((err) => {
+        if (err.status === 404 || err.status === 410) return 'deleted';
+        if (invite && err.status === 403) return respond(g, 'declined').then(() => 'declined');
+        throw err;
+      });
+  }
+
+  function respond(g, status) {
+    const attendees = (g.attendees || []).map((a) => (a.self ? { ...a, responseStatus: status } : a));
+    return api(eventPath(g.id), { method: 'PATCH', body: { attendees }, query: { sendUpdates: 'all' } });
+  }
+
+  els.pop.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action], [data-rsvp]');
+    if (!btn || !popEvent) return;
+    const g = popEvent.extendedProps.google || {};
+    const action = btn.dataset.action;
+
+    if (action === 'close') return closePopover();
+    if (action === 'edit') return openDialog({ fcEvent: popEvent });
+    if (action === 'delete') return renderPopover(true);
+    if (action === 'cancel-delete') return renderPopover(false);
+    if (action === 'copy-meet') return copyText(g.hangoutLink);
+
+    if (action === 'confirm-delete') {
+      const scope = btn.dataset.scope;
+      const done = deleteEvent(g, scope); // sincrónico dentro del clic
+      els.pop.querySelectorAll('button').forEach((b) => (b.disabled = true));
+      done.then((res) => {
+        closePopover();
+        toast(res === 'declined' ? 'Invitación rechazada' : scope === 'series' ? 'Serie eliminada' : isInvite(g) ? 'Quitado de tu calendario' : 'Evento eliminado');
+      }).catch(handleError).finally(() => calendar.refetchEvents());
+      return;
+    }
+
+    if (btn.dataset.rsvp) {
+      const status = btn.dataset.rsvp;
+      const done = respond(g, status);
+      els.pop.querySelectorAll('.rsvp-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      done.then(() => {
+        toast({ accepted: 'Has confirmado tu asistencia', declined: 'Has rechazado la invitación', tentative: 'Respondido: quizás' }[status]);
+        calendar.refetchEvents();
+      }).catch(handleError);
+    }
+  });
+
+  // Cerrar la tarjeta al hacer clic fuera, con Esc o al hacer scroll del calendario
+  document.addEventListener('mousedown', (e) => {
+    if (els.pop.hidden || els.pop.contains(e.target) || e.target.closest('.fc-event')) return;
+    closePopover();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (els.pop.hidden || els.dialog.open) return;
+    if (e.key === 'Escape') closePopover();
+    if ((e.key === 'Delete' || e.key === 'Backspace') && popEvent && permission(popEvent.extendedProps.google || {}) !== 'none') {
+      e.preventDefault();
+      renderPopover(true);
+    }
+  });
+  window.addEventListener('resize', closePopover);
+  document.getElementById('calendar').addEventListener('scroll', closePopover, true);
+
+  // ── Próximo turno (chip de la cabecera) ────────────────────
+  let nextShiftDate = null;
+  async function updateNextShift() {
+    if (!CFG.TURNOS || !tokenValid()) return;
+    try {
+      const data = await api(calPath(), {
+        interactive: false,
+        query: {
+          privateExtendedProperty: 'turnosSync=1',
+          timeMin: new Date().toISOString(),
+          singleEvents: 'true',
+          orderBy: 'startTime',
+          maxResults: 1,
+        },
+      });
+      const g = data.items?.[0];
+      const shift = shiftOf(g);
+      if (!g || !shift) { els.nextShift.hidden = true; return; }
+      const start = new Date(g.start.dateTime);
+      const end = new Date(g.end.dateTime);
+      const now = new Date();
+      const today = fmtDate(now);
+      const dayLabel = start <= now ? 'ahora' : fmtDate(start) === today ? 'hoy'
+        : fmtDate(start) === fmtDate(addDays(now, 1)) ? 'mañana'
+          : start.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+      nextShiftDate = start;
+      els.nextShift.className = `next-shift shift-${shift.kind}`;
+      els.nextShift.innerHTML = `<span class="ns-ico">${shift.icon}</span><span class="ns-text"><small>${start <= now ? 'En turno' : 'Próximo turno'}</small>${shift.label} ${shift.place} · ${dayLabel} ${start <= now ? `hasta ${fmtClock(end)}` : fmtClock(start)}</span>`;
+      els.nextShift.hidden = false;
+    } catch { /* no es crítico */ }
+  }
+  els.nextShift.addEventListener('click', () => {
+    if (!nextShiftDate || !calendar) return;
+    calendar.changeView(calendar.view.type.startsWith('list') ? calendar.view.type : 'timeGridWeek', nextShiftDate);
+  });
+
+  // ── Reunión de Google Meet ─────────────────────────────────
+  els.meetBtn.addEventListener('click', () => {
+    const start = roundToNextHalfHour(new Date());
+    openDialog({ start, end: addMinutes(start, 30), meet: true, title: 'Reunión' });
+  });
 
   // ── Sincronización de turnos de trabajo ────────────────────
   //  Lee la planificación (CSV publicado), coge SOLO la fila del operador
@@ -662,12 +1014,12 @@
   //  Cada turno lleva una marca privada (turnosSync) para no tocar nunca
   //  tus otros eventos ni duplicar turnos al sincronizar varias veces.
   const SHIFT_TYPES = {
-    MA: { label: 'Mañana', place: 'Arteixo', start: '07:00', end: '15:00', colorId: '5' },
-    ML: { label: 'Mañana', place: 'Laracha', start: '07:00', end: '15:00', colorId: '5' },
-    TA: { label: 'Tarde', place: 'Arteixo', start: '15:00', end: '23:00', colorId: '6' },
-    TL: { label: 'Tarde', place: 'Laracha', start: '15:00', end: '23:00', colorId: '6' },
-    NA: { label: 'Noche', place: 'Arteixo', start: '23:00', end: '07:00', colorId: '9' },
-    NL: { label: 'Noche', place: 'Laracha', start: '23:00', end: '07:00', colorId: '9' },
+    MA: { label: 'Mañana', place: 'Arteixo', start: '07:00', end: '15:00', colorId: '5', kind: 'morning', icon: '☀️' },
+    ML: { label: 'Mañana', place: 'Laracha', start: '07:00', end: '15:00', colorId: '5', kind: 'morning', icon: '☀️' },
+    TA: { label: 'Tarde', place: 'Arteixo', start: '15:00', end: '23:00', colorId: '6', kind: 'evening', icon: '🌇' },
+    TL: { label: 'Tarde', place: 'Laracha', start: '15:00', end: '23:00', colorId: '6', kind: 'evening', icon: '🌇' },
+    NA: { label: 'Noche', place: 'Arteixo', start: '23:00', end: '07:00', colorId: '9', kind: 'night', icon: '🌙' },
+    NL: { label: 'Noche', place: 'Laracha', start: '23:00', end: '07:00', colorId: '9', kind: 'night', icon: '🌙' },
   };
   const MONTHS_ES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
   const SHIFT_TAG = 'turnosSync';

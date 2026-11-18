@@ -5,13 +5,13 @@
 Calendario web personal alojado en **GitHub Pages** y sincronizado con **Google Calendar**.
 
 - Crear, modificar y eliminar eventos (con hora, de día completo y periódicos).
-- Arrastrar para mover un evento y estirar para cambiar su duración.
+- **Tarjeta de evento** al hacer clic: detalles, ✏️ Editar, 🗑️ Eliminar (también con la tecla Supr) y enlace a Google.
+- **Invitaciones** de otras personas: responder Sí / No / Quizás o quitarlas de tu calendario. Los eventos creados por Gmail también se pueden quitar.
+- **Reuniones de Google Meet** (botón 🎥 Reunión Meet): enlace de Meet automático, invitados y envío de invitaciones por email. Para unirte, botón «Unirse con Google Meet».
+- Arrastrar para mover un evento y estirar para cambiar su duración (si hay invitados, se les avisa del cambio).
 - Vistas de mes, semana, día y agenda. En el móvil se adapta solo.
-- Selector de calendarios: puedes trabajar con cualquiera de tus calendarios de Google.
-- Colores oficiales de Google Calendar.
-- Modo oscuro automático.
-- Tecla **N** para crear un evento nuevo.
-- **Sincronización de turnos de trabajo** (botón 🗓️ Turnos): copia solo los turnos de Luis Martinez del cuadrante de operaciones.
+- **Turnos de trabajo** (botón 🗓️ Turnos): copia solo los turnos de Luis Martinez del cuadrante de operaciones. Cada tipo de turno tiene su color (☀️ mañana, 🌇 tarde, 🌙 noche) y la cabecera muestra tu próximo turno.
+- Selector de calendarios, modo oscuro automático y tecla **N** para crear un evento nuevo.
 
 **Cómo funciona:** no hay servidor ni base de datos. La página habla directamente con la API de Google Calendar desde tu navegador. Tu Google Calendar es el único sitio donde se guardan los datos, así que lo que cambies aquí aparece al instante en Google (móvil, Gmail…). Los cambios que hagas en Google se ven aquí al refrescar, cuando vuelves a la pestaña o cada 60 segundos.
 
@@ -97,9 +97,11 @@ El botón lee la planificación publicada en `https://joaomgonzalezt.github.io/t
 
 | Código | Turno | Horario | Color |
 |---|---|---|---|
-| MA / ML | Mañana Arteixo / Laracha | 07:00 – 15:00 | Plátano (amarillo) |
-| TA / TL | Tarde Arteixo / Laracha | 15:00 – 23:00 | Mandarina (naranja) |
-| NA / NL | Noche Arteixo / Laracha | 23:00 – 07:00 (día siguiente) | Arándano (azul) |
+| MA / ML | ☀️ Mañana Arteixo / Laracha | 07:00 – 15:00 | Amarillo |
+| TA / TL | 🌇 Tarde Arteixo / Laracha | 15:00 – 23:00 | Naranja |
+| NA / NL | 🌙 Noche Arteixo / Laracha | 23:00 – 07:00 (día siguiente) | Violeta |
+
+Los turnos de noche se ven solo en el día en que empiezan. En las vistas de semana y día se ven completos, hasta las 07:00 del día siguiente.
 
 Cómo funciona:
 - Antes de cambiar nada te enseña un resumen: turnos nuevos, cambiados, eliminados y sin cambios. Solo aplica los cambios si pulsas **Sincronizar**.

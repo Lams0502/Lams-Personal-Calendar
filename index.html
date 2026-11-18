@@ -5,16 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Lams Personal Calendar</title>
   <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#4f46e5" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>" />
-  <link rel="stylesheet" href="styles.css?v=2" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="styles.css?v=3" />
 </head>
 <body>
   <!-- Pantalla de acceso -->
   <section id="login-screen" class="login-screen">
     <div class="login-card">
-      <div class="login-logo">📅</div>
-      <h1>Mi calendario</h1>
-      <p class="muted">Crea, modifica y elimina eventos. Todo se guarda directamente en tu Google Calendar.</p>
+      <div class="logo logo-lg">📅</div>
+      <h1>Lams Calendar</h1>
+      <p class="muted">Tus eventos, turnos y reuniones de Google Meet en un solo sitio. Todo se guarda directamente en tu Google Calendar.</p>
       <button id="login-btn" class="btn btn-primary btn-lg" type="button" disabled>Conectar con Google</button>
       <p id="login-msg" class="login-msg"></p>
     </div>
@@ -24,18 +28,20 @@
   <div id="app" class="app" hidden>
     <header class="topbar">
       <div class="topbar-left">
-        <span class="brand">📅 Mi calendario</span>
+        <span class="brand"><span class="logo">📅</span><span class="brand-text">Lams Calendar</span></span>
         <label class="cal-picker">
           <span class="sr-only">Calendario</span>
           <span id="cal-dot" class="cal-dot"></span>
           <select id="calendar-select" title="Calendario"></select>
         </label>
+        <button id="next-shift" class="next-shift" type="button" hidden title="Ir al próximo turno"></button>
       </div>
       <div class="topbar-right">
         <span id="sync-status" class="sync-status" title="Estado de sincronización"></span>
-        <button id="refresh-btn" class="btn btn-ghost" type="button" title="Sincronizar ahora">⟳</button>
-        <button id="shifts-btn" class="btn btn-ghost" type="button" title="Sincronizar turnos de trabajo" hidden>🗓️ Turnos</button>
-        <button id="new-btn" class="btn btn-primary" type="button" title="Nuevo evento (tecla N)">+ Nuevo</button>
+        <button id="refresh-btn" class="btn btn-ghost btn-icon-only" type="button" title="Sincronizar ahora" aria-label="Sincronizar ahora">⟳</button>
+        <button id="shifts-btn" class="btn btn-ghost" type="button" title="Sincronizar turnos de trabajo" hidden>🗓️ <span class="btn-label">Turnos</span></button>
+        <button id="meet-btn" class="btn btn-meet" type="button" title="Programar una reunión de Google Meet">🎥 <span class="btn-label">Reunión Meet</span></button>
+        <button id="new-btn" class="btn btn-primary" type="button" title="Nuevo evento (tecla N)">＋ <span class="btn-label">Nuevo</span></button>
         <button id="logout-btn" class="btn btn-ghost" type="button" title="Desconectar cuenta">Salir</button>
       </div>
     </header>
@@ -49,6 +55,9 @@
       <div id="calendar"></div>
     </main>
   </div>
+
+  <!-- Tarjeta de evento (al hacer clic en un evento) -->
+  <div id="event-pop" class="event-pop" role="dialog" aria-modal="false" hidden></div>
 
   <!-- Formulario de evento -->
   <dialog id="event-dialog" class="event-dialog">
@@ -104,6 +113,28 @@
         </label>
         <p id="recurring-note" class="note" hidden>Evento periódico: los cambios se aplican solo a esta repetición.</p>
         <p id="shift-note" class="note" hidden>Turno sincronizado desde el cuadrante. Si lo cambias a mano, la próxima sincronización puede sobrescribirlo.</p>
+
+        <!-- Google Meet + invitados -->
+        <div class="meet-box">
+          <label class="check meet-toggle">
+            <input name="meet" type="checkbox" />
+            <span class="meet-icon">🎥</span>
+            <span>Añadir videollamada de <strong>Google Meet</strong></span>
+          </label>
+          <div id="meet-link" class="meet-link" hidden>
+            <a href="#" target="_blank" rel="noopener"></a>
+            <button type="button" class="btn btn-ghost btn-sm" data-copy-meet>Copiar</button>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Invitados</span>
+          <input name="guests" type="text" placeholder="email@ejemplo.com, otra@ejemplo.com" autocomplete="off" inputmode="email" />
+        </label>
+        <label class="check" id="notify-field" hidden>
+          <input name="notify" type="checkbox" checked />
+          <span>Enviar invitación por email a los invitados</span>
+        </label>
 
         <label class="field">
           <span>Ubicación</span>
@@ -161,7 +192,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <!-- App -->
-  <script src="config.js?v=2"></script>
-  <script src="app.js?v=2"></script>
+  <script src="config.js?v=3"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
