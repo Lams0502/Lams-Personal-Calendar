@@ -708,7 +708,7 @@
       footerToolbar: narrow ? { center: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' } : false,
       nowIndicator: true,
       navLinks: true,
-      dayMaxEvents: 4,
+      dayMaxEvents: true, fixedWeekCount: false,
       selectable: calendarWritable,
       selectMirror: true,
       editable: true,
