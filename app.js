@@ -48,6 +48,7 @@
   let expiryTimer = null;
 
   let calendar = null;          // instancia de FullCalendar
+  let lastViewType = null;
   let calendars = [];           // lista de calendarios de Google
   let currentCalendarId = localStorage.getItem(LS.calendar) || CFG.DEFAULT_CALENDAR_ID;
   let calendarWritable = true;
@@ -93,6 +94,10 @@
     nextShift: $('#next-shift'),
     meetLink: $('#meet-link'),
     notifyField: $('#notify-field'),
+    routineBtn: $('#routine-btn'),
+    routineDialog: $('#routine-dialog'),
+    routineBody: $('#routine-body'),
+    routineConfirm: $('#routine-confirm'),
   };
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const f = els.form.elements;
@@ -329,6 +334,7 @@
     els.newBtn.disabled = !calendarWritable;
     els.shiftsBtn.disabled = !calendarWritable;
     els.meetBtn.disabled = !calendarWritable;
+    els.routineBtn.disabled = !calendarWritable;
     try { localStorage.setItem(LS.calendar, currentCalendarId); } catch { /* ignorar */ }
     if (calendar) {
       calendar.setOption('eventColor', calendarColor);
@@ -358,7 +364,7 @@
   function toFcEvent(g) {
     const allDay = !!g.start?.date;
     const shift = shiftOf(g);
-    const color = !shift && g.colorId ? GOOGLE_COLORS[g.colorId]?.bg : undefined;
+    const color = !shift && !routineKind(g) && g.colorId ? GOOGLE_COLORS[g.colorId]?.bg : undefined;
     const me = selfAttendee(g);
     return {
       id: g.id,
@@ -372,6 +378,7 @@
       classNames: [
         g.recurringEventId && 'is-recurring',
         shift && `shift shift-${shift.kind}`,
+        routineKind(g) && `routine routine-${routineKind(g)}`,
         g.hangoutLink && 'has-meet',
         isInvite(g) && 'is-invite',
         me?.responseStatus === 'declined' && 'is-declined',
@@ -391,6 +398,10 @@
     const time = arg.timeText ? `<span class="ev-time">${esc(arg.timeText)}</span>` : '';
     const type = arg.view.type;
     if (type.startsWith('list')) return { html: `${iconHtml}<span class="ev-title">${title}</span>` };
+    const mins = arg.event.end ? (arg.event.end - arg.event.start) / 60000 : 60;
+    if (type.startsWith('timeGrid') && mins <= 40) {
+      return { html: `<div class="ev ev-compact">${iconHtml}<span class="ev-title">${title}</span>${time}</div>` };
+    }
     if (type.startsWith('timeGrid')) {
       const sub = shift ? `${shift.start}–${shift.end}` : esc(g.location || '');
       return { html: `<div class="ev ev-tg"><div class="ev-title">${iconHtml}${title}</div>${time}${sub && !shift ? `<div class="ev-sub">${sub}</div>` : ''}</div>` };
@@ -495,7 +506,11 @@
     els.dialogTitle.textContent = !fcEvent ? (meet ? 'Nueva reunión de Google Meet' : 'Nuevo evento') : editable ? 'Editar evento' : 'Detalles del evento';
     els.readonlyNote.hidden = !fcEvent || editable;
     els.recurringNote.hidden = !isInstance;
-    els.shiftNote.hidden = g?.extendedProperties?.private?.turnosSync !== '1';
+    const isRoutine = !!routineKind(g);
+    els.shiftNote.hidden = g?.extendedProperties?.private?.turnosSync !== '1' && !isRoutine;
+    els.shiftNote.textContent = isRoutine
+      ? 'Bloque de tu rutina. Si lo cambias a mano, la próxima vez que pulses «Rutina» puede recolocarse.'
+      : 'Turno sincronizado desde el cuadrante. Si lo cambias a mano, la próxima sincronización puede sobrescribirlo.';
     els.repeatField.hidden = isInstance || isSeriesMaster;
     els.seriesField.hidden = !isInstance || !editable;
     els.deleteBtn.hidden = !fcEvent || !editable;
@@ -724,6 +739,7 @@
       eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
       slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
       eventContent: renderEventContent,
+      eventMinHeight: 20,
       eventDidMount: (arg) => {
         arg.el.title = arg.event.title;
         // En la agenda, un turno de noche mostraría "23:00 - 00:00": ponemos el horario real.
@@ -733,13 +749,22 @@
           cell.textContent = `${fmtClock(start)} - ${fmtClock(end)}`;
         }
       },
-      datesSet: () => closePopover(),
+      datesSet: (info) => {
+        closePopover();
+        // En la vista de mes se ocultan sueño, meditación y lectura: al cambiar de vista se recargan.
+        if (lastViewType && lastViewType !== info.view.type && (lastViewType === 'dayGridMonth' || info.view.type === 'dayGridMonth')) {
+          setTimeout(() => calendar.refetchEvents(), 0);
+        }
+        lastViewType = info.view.type;
+      },
 
       events: async (info, success, failure) => {
         setSync('loading');
         try {
           const items = await listEvents(info.start, info.end);
-          success(items.map(toFcEvent));
+          const monthView = calendar?.view?.type === 'dayGridMonth';
+          const minor = new Set(['sleep', 'nap', 'meditate', 'read']);
+          success(items.filter((g) => !(monthView && minor.has(routineKind(g)))).map(toFcEvent));
           setSync('ok');
           updateNextShift();
         } catch (err) {
@@ -798,6 +823,8 @@
     const g = fcEvent.extendedProps.google || {};
     const shift = shiftOf(g);
     if (shift) return { morning: '#f59e0b', evening: '#f97316', night: '#6366f1' }[shift.kind];
+    const rk = routineKind(g);
+    if (rk) return { sleep: '#a78bfa', nap: '#a78bfa', train: '#ef4444', study: '#10b981', meditate: '#14b8a6', read: '#ec4899' }[rk];
     return (g.colorId && GOOGLE_COLORS[g.colorId]?.bg) || calendarColor;
   }
 
@@ -846,6 +873,7 @@
       <div class="pop-body">
         <div class="pop-row"><span class="pop-ico">🕒</span><div>${fmtRange(ev)}</div></div>
         ${shift ? `<div class="pop-row"><span class="pop-ico">🏭</span><div>Turno <strong>${esc(g.extendedProperties.private.turnoCode)}</strong> · sincronizado del cuadrante</div></div>` : ''}
+        ${routineKind(g) ? '<div class="pop-row"><span class="pop-ico">🧩</span><div>Bloque de tu rutina · se recoloca al pulsar «Rutina»</div></div>' : ''}
         ${g.location && !shift ? `<div class="pop-row"><span class="pop-ico">📍</span><div>${esc(g.location)}</div></div>` : ''}
         ${g.hangoutLink ? `
           <div class="pop-row pop-meet">
@@ -855,7 +883,7 @@
         ${guests.length ? `<div class="pop-row"><span class="pop-ico">👥</span><div>${guests.length} invitado${guests.length === 1 ? '' : 's'}${invite && organizerName ? ` · organiza <strong>${esc(organizerName)}</strong>` : ''}</div></div>` : ''}
         ${invite && me && perm !== 'none' ? `
           <div class="pop-rsvp"><span>¿Asistirás?</span>${rsvp('accepted', 'Sí')}${rsvp('declined', 'No')}${rsvp('tentative', 'Quizás')}</div>` : ''}
-        ${desc && !shift ? `<div class="pop-desc">${esc(desc.length > 280 ? desc.slice(0, 280) + '…' : desc)}</div>` : ''}
+        ${desc && !shift && !routineKind(g) ? `<div class="pop-desc">${esc(desc.length > 280 ? desc.slice(0, 280) + '…' : desc)}</div>` : ''}
         ${g.eventType === 'fromGmail' ? '<p class="note">Evento creado automáticamente desde Gmail: puedes quitarlo, pero no editarlo.</p>' : ''}
       </div>
       ${actions}`;
@@ -1060,7 +1088,21 @@
       if (!SHIFT_TYPES[code]) { unknown.add(code); continue; }
       shifts.push({ date: colDate[c], code });
     }
-    return { shifts, unknown: [...unknown], undated };
+    const lastDate = Object.values(colDate).sort().pop() || null;
+    return { shifts, unknown: [...unknown], undated, lastDate };
+  }
+
+  async function fetchShiftsCsv() {
+    const T = CFG.TURNOS;
+    try {
+      const url = T.CSV_URL + (T.CSV_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error();
+      return parseShiftsCsv(await res.text(), T.OPERADOR);
+    } catch (err) {
+      if (err.message && err.message.startsWith('No encuentro')) throw err;
+      throw new Error('No he podido leer la planificación de turnos. Comprueba la dirección en config.js o tu conexión.');
+    }
   }
 
   function shiftEventBody(s, tz) {
@@ -1103,16 +1145,7 @@
 
   async function buildShiftPlan() {
     const T = CFG.TURNOS;
-    let text;
-    try {
-      const url = T.CSV_URL + (T.CSV_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error();
-      text = await res.text();
-    } catch {
-      throw new Error('No he podido leer la planificación de turnos. Comprueba la dirección en config.js o tu conexión.');
-    }
-    const parsed = parseShiftsCsv(text, T.OPERADOR);
+    const parsed = await fetchShiftsCsv();
     const fromDate = T.SOLO_DESDE_HOY === false ? null : fmtDate(new Date());
     const wanted = parsed.shifts.filter((s) => !fromDate || s.date >= fromDate);
     const existing = await listSyncedShiftEvents(fromDate);
@@ -1175,7 +1208,7 @@
     }
   }
 
-  async function applyShiftPlan(plan) {
+  async function applyShiftPlan(plan, progressBtn = els.shiftsConfirm) {
     const ops = [
       ...plan.remove.map((e) => () => api(eventPath(e.id), { method: 'DELETE' })
         .catch((err) => { if (err.status !== 404 && err.status !== 410) throw err; })),
@@ -1196,7 +1229,7 @@
           console.error(err);
         }
         done++;
-        els.shiftsConfirm.textContent = `Sincronizando ${done}/${total}…`;
+        progressBtn.textContent = `Sincronizando ${done}/${total}…`;
       }
     };
     await Promise.all([worker(), worker(), worker()]);
@@ -1247,6 +1280,336 @@
 
   els.shiftsDialog.querySelectorAll('[data-close-shifts]').forEach((b) => b.addEventListener('click', () => els.shiftsDialog.close()));
   els.shiftsDialog.addEventListener('click', (e) => { if (e.target === els.shiftsDialog) els.shiftsDialog.close(); });
+
+  // ── Rutina personal (sueño, entreno, formación, meditación, lectura) ──
+  //  Genera los bloques de cada día a partir de tus turnos y los refleja en
+  //  el calendario. Cada bloque lleva una marca privada (rutinaSync) para
+  //  recolocarlos sin duplicar cuando cambie el cuadrante.
+  const ROUTINE_TAG = 'rutinaSync';
+  const ROUTINE_KINDS = {
+    sleep: { title: '😴 Sueño', colorId: '1', label: 'Sueño' },
+    nap: { title: '😴 Siesta antes de la noche', colorId: '1', label: 'Siesta' },
+    train: { title: '🏋️ Entrenamiento', colorId: '11', label: 'Entrenamiento' },
+    study: { title: '📚 Formación', colorId: '10', label: 'Formación' },
+    meditate: { title: '🧘 Meditación', colorId: '2', label: 'Meditación' },
+    read: { title: '📖 Lectura', colorId: '4', label: 'Lectura' },
+  };
+  const routineKind = (g) => g?.extendedProperties?.private?.rutinaKind || null;
+  const hm = (h, m = 0) => h * 60 + m;
+  const fmtHM = (mins) => `${pad(Math.floor((((mins % 1440) + 1440) % 1440) / 60))}:${pad(((mins % 60) + 60) % 60)}`;
+  const fmtHours = (mins) => `${(Math.round(mins / 6) / 10).toString().replace('.', ',')} h`;
+  let routinePlan = null;
+
+  /** Tipo de cada día: M (mañana), T (tarde), N1 (primera noche), Nc (noche
+   *  seguida), P (libre tras noches) o L (libre). */
+  function dayKinds(shifts, from, to) {
+    const code = new Map(shifts.map((s) => [s.date, s.code]));
+    const kindOf = (iso) => {
+      const c = code.get(iso);
+      const prev = code.get(fmtDate(addDays(parseDate(iso), -1)));
+      const prevNight = !!prev && prev[0] === 'N';
+      if (c) return c[0] === 'M' ? 'M' : c[0] === 'T' ? 'T' : prevNight ? 'Nc' : 'N1';
+      return prevNight ? 'P' : 'L';
+    };
+    const days = [];
+    for (let d = parseDate(from); fmtDate(d) <= to; d = addDays(d, 1)) {
+      const iso = fmtDate(d);
+      days.push({ date: iso, kind: kindOf(iso), next: kindOf(fmtDate(addDays(d, 1))), code: code.get(iso) || null });
+    }
+    return days;
+  }
+
+  /** Elige los días de entreno de cada semana (lunes a domingo). */
+  function pickTrainingDays(days, perWeek) {
+    const score = { L: 3, T: 2, M: 1 };
+    const weeks = new Map();
+    for (const d of days) {
+      const dt = parseDate(d.date);
+      const monday = fmtDate(addDays(dt, -((dt.getDay() + 6) % 7)));
+      if (!weeks.has(monday)) weeks.set(monday, []);
+      weeks.get(monday).push(d);
+    }
+    const chosen = new Set();
+    const has = (iso, delta) => chosen.has(fmtDate(addDays(parseDate(iso), delta)));
+    const neighbours = (iso) => (has(iso, -1) ? 1 : 0) + (has(iso, 1) ? 1 : 0);
+    const makesTriple = (iso) => (has(iso, -1) && has(iso, 1)) || (has(iso, -1) && has(iso, -2)) || (has(iso, 1) && has(iso, 2));
+    for (const list of weeks.values()) {
+      const cands = list.filter((d) => score[d.kind]).sort((a, b) => score[b.kind] - score[a.kind] || a.date.localeCompare(b.date));
+      let n = 0;
+      // 1º sin días seguidos (también respecto a la semana anterior); 2º, si no llega, se permite un día seguido pero nunca tres.
+      for (const relax of [false, true]) {
+        for (const d of cands) {
+          if (n >= perWeek) break;
+          if (chosen.has(d.date)) continue;
+          if (!relax && neighbours(d.date) > 0) continue;
+          if (relax && makesTriple(d.date)) continue;
+          chosen.add(d.date);
+          n++;
+        }
+      }
+    }
+    return chosen;
+  }
+
+  /** Bloques de un día en minutos desde las 00:00 de ese día (pueden pasar de 1440). */
+  function routineBlocks(day, train, cfg) {
+    const c = cfg.commute;
+    const sleepMin = cfg.sleepMin;
+    const wakeOf = (k) => ({ M: hm(7) - c - 60, T: hm(7, 45), L: hm(7, 45), N1: hm(7, 45), Nc: hm(7) + c + 30 + sleepMin, P: hm(7) + c + 30 + 360 }[k]);
+    const b = [];
+    const add = (kind, start, end) => b.push({ kind, start, end });
+    const wake = wakeOf(day.kind);
+    let defaultBed = null;
+    let lastEnd = 0;
+
+    switch (day.kind) {
+      case 'M': {
+        const home = hm(15) + c;
+        add('meditate', wake, wake + 15);
+        if (train) { add('study', home + 45, home + 165); add('train', home + 175, home + 355); defaultBed = home + 390; lastEnd = home + 355; }
+        else { add('study', home + 45, home + 225); defaultBed = hm(21, 45); lastEnd = home + 225; }
+        break;
+      }
+      case 'T': {
+        add('meditate', wake, wake + 15);
+        if (train) { add('train', hm(8, 15), hm(11, 15)); add('study', hm(11, 30), hm(13, 30)); }
+        else add('study', hm(8, 30), hm(12, 30));
+        lastEnd = hm(23) + c;
+        defaultBed = lastEnd + 30;
+        break;
+      }
+      case 'L': {
+        add('meditate', wake, wake + 15);
+        if (train) { add('train', hm(9, 30), hm(12, 30)); add('study', hm(16), hm(19, 30)); lastEnd = hm(19, 30); }
+        else { add('study', hm(9, 30), hm(13, 30)); lastEnd = hm(13, 30); }
+        defaultBed = hm(23, 30);
+        break;
+      }
+      case 'N1': {
+        add('meditate', wake, wake + 15);
+        add('study', hm(9, 30), hm(12, 30));
+        add('nap', hm(15, 30), hm(18, 30));
+        add('read', hm(20), hm(20, 30));
+        break;
+      }
+      case 'Nc': {
+        const sleepStart = hm(7) + c + 30;
+        add('sleep', sleepStart, wake);
+        add('meditate', wake, wake + 15);
+        add('study', wake + 60, wake + 240);
+        add('read', hm(20), hm(20, 30));
+        break;
+      }
+      case 'P': {
+        const sleepStart = hm(7) + c + 30;
+        add('sleep', sleepStart, wake);
+        add('meditate', wake, wake + 15);
+        add('study', hm(16), hm(18));
+        defaultBed = hm(23);
+        lastEnd = hm(18);
+        break;
+      }
+    }
+
+    let warning = null;
+    if (defaultBed !== null) {
+      // Hora de acostarse: la habitual, o antes si al día siguiente madrugas,
+      // pero nunca antes de terminar lo del día + la lectura.
+      const readLen = day.kind === 'M' && train ? 15 : day.kind === 'T' || day.kind === 'M' ? 20 : 30;
+      const nextWake = day.next === 'Nc' || day.next === 'P' ? null : wakeOf(day.next);
+      let bed = defaultBed;
+      if (nextWake != null) bed = Math.min(defaultBed, 1440 + nextWake - cfg.sleepTarget);
+      bed = Math.max(bed, lastEnd + readLen + 10);
+      const readEnd = bed - 5;
+      add('read', readEnd - readLen, readEnd);
+      const wakeNext = nextWake != null ? 1440 + nextWake : bed + cfg.sleepTarget;
+      if (wakeNext - bed < sleepMin) warning = `${fmtHuman(day.date)}: solo ${fmtHours(wakeNext - bed)} de sueño por el cambio de turno`;
+      add('sleep', bed, wakeNext);
+    }
+    return { blocks: b, warning };
+  }
+
+  function routineEventBody(date, blk, idx, tz) {
+    const k = ROUTINE_KINDS[blk.kind];
+    const toLocal = (mins) => {
+      const d = addDays(parseDate(date), Math.floor(mins / 1440));
+      return `${fmtDate(d)}T${fmtHM(mins)}:00`;
+    };
+    const body = {
+      summary: k.title,
+      description: 'Bloque de tu rutina, creado automáticamente según tus turnos. Si lo cambias a mano, la próxima vez que pulses «Rutina» puede recolocarse.',
+      colorId: k.colorId,
+      start: { dateTime: toLocal(blk.start), timeZone: tz },
+      end: { dateTime: toLocal(blk.end), timeZone: tz },
+      transparency: blk.kind === 'sleep' || blk.kind === 'nap' ? 'transparent' : 'opaque',
+      reminders: blk.kind === 'train' ? { useDefault: false, overrides: [{ method: 'popup', minutes: 30 }] } : { useDefault: false, overrides: [] },
+      extendedProperties: { private: { [ROUTINE_TAG]: '1', rutinaKey: `${date}|${blk.kind}|${idx}`, rutinaKind: blk.kind, rutinaDate: date } },
+    };
+    return body;
+  }
+
+  async function listRoutineEvents(fromDate) {
+    const items = [];
+    let pageToken;
+    do {
+      const data = await api(calPath(), {
+        query: { privateExtendedProperty: `${ROUTINE_TAG}=1`, timeMin: addDays(parseDate(fromDate), -1).toISOString(), singleEvents: 'true', maxResults: 2500, pageToken },
+      });
+      items.push(...(data.items || []));
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return items.filter((e) => e.status !== 'cancelled' && (e.extendedProperties?.private?.rutinaDate || '') >= fromDate);
+  }
+
+  async function buildRoutinePlan() {
+    const R = CFG.RUTINA || {};
+    const cfg = {
+      commute: Number(R.DESPLAZAMIENTO_MIN ?? 45),
+      sleepTarget: Math.round(Number(R.SUENO_HORAS ?? 7.5) * 60),
+      sleepMin: Math.round(Number(R.SUENO_MINIMO_HORAS ?? 7) * 60),
+      perWeek: Number(R.ENTRENOS_SEMANA ?? 3),
+    };
+    const tz = CFG.TURNOS?.ZONA_HORARIA || 'Europe/Madrid';
+    const parsed = await fetchShiftsCsv();
+    const now = new Date();
+    const from = fmtDate(now);
+    const to = parsed.lastDate;
+    if (!to || to < from) throw new Error('El cuadrante no tiene días a partir de hoy.');
+
+    const days = dayKinds(parsed.shifts, from, to);
+    const trainDays = pickTrainingDays(days, cfg.perWeek);
+    const wanted = [];
+    const warnings = [];
+    const weeks = new Map();
+    for (const day of days) {
+      const { blocks, warning } = routineBlocks(day, trainDays.has(day.date), cfg);
+      if (warning) warnings.push(warning);
+      const dt = parseDate(day.date);
+      const monday = fmtDate(addDays(dt, -((dt.getDay() + 6) % 7)));
+      if (!weeks.has(monday)) weeks.set(monday, { monday, train: 0, study: 0, sleep: 0, nights: 0 });
+      const w = weeks.get(monday);
+      blocks.forEach((blk, i) => {
+        const body = routineEventBody(day.date, blk, i, tz);
+        if (new Date(body.end.dateTime) <= now) return; // ya pasado
+        wanted.push(body);
+        const len = blk.end - blk.start;
+        if (blk.kind === 'train') w.train++;
+        if (blk.kind === 'study') w.study += len;
+        if (blk.kind === 'sleep') { w.sleep += len; w.nights++; }
+      });
+    }
+
+    // Diferencias con lo que ya hay en el calendario
+    const existing = await listRoutineEvents(from);
+    const byKey = new Map();
+    const plan = { create: [], update: [], remove: [], same: 0, wanted, warnings, weeks: [...weeks.values()], from, to, cfg, conflicts: [] };
+    for (const e of existing) {
+      const key = e.extendedProperties.private.rutinaKey;
+      if (byKey.has(key)) plan.remove.push(e); else byKey.set(key, e);
+    }
+    const sameTime = (a, b) => new Date(a).getTime() === new Date(b).getTime();
+    for (const body of wanted) {
+      const key = body.extendedProperties.private.rutinaKey;
+      const ex = byKey.get(key);
+      byKey.delete(key);
+      if (!ex) plan.create.push(body);
+      else if (!sameTime(ex.start.dateTime, body.start.dateTime) || !sameTime(ex.end.dateTime, body.end.dateTime) || ex.summary !== body.summary) plan.update.push({ id: ex.id, body });
+      else plan.same++;
+    }
+    for (const e of byKey.values()) plan.remove.push(e);
+
+    // Coincidencias con tus otros eventos (no se tocan, solo se avisan)
+    try {
+      const own = (await listEvents(parseDate(from), addDays(parseDate(to), 2)))
+        .filter((g) => g.start?.dateTime && !g.extendedProperties?.private?.[ROUTINE_TAG] && !g.extendedProperties?.private?.[SHIFT_TAG]);
+      for (const g of own) {
+        const s = new Date(g.start.dateTime), e = new Date(g.end.dateTime);
+        const hit = wanted.find((w) => w.extendedProperties.private.rutinaKind !== 'sleep' && new Date(w.start.dateTime) < e && new Date(w.end.dateTime) > s);
+        if (hit) plan.conflicts.push(`${fmtHuman(fmtDate(s))} ${fmtClock(s)} · ${g.summary || '(Sin título)'} ↔ ${hit.summary}`);
+      }
+    } catch { /* aviso opcional */ }
+    return plan;
+  }
+
+  function renderRoutinePlan(plan) {
+    const calName = els.calSelect.selectedOptions[0]?.textContent || 'tu calendario';
+    const nothing = !plan.create.length && !plan.update.length && !plan.remove.length;
+    const count = (k) => plan.wanted.filter((w) => w.extendedProperties.private.rutinaKind === k).length;
+    const rows = plan.weeks.map((w) => {
+      const mon = parseDate(w.monday);
+      const sun = addDays(mon, 6);
+      const label = `${mon.getDate()}–${sun.getDate()} ${sun.toLocaleDateString('es-ES', { month: 'short' })}`;
+      const avgSleep = w.nights ? fmtHours(w.sleep / w.nights) : '—';
+      return `<tr><td>${esc(label)}</td><td>${w.train}</td><td>${fmtHours(w.study)}</td><td>${avgSleep}</td></tr>`;
+    }).join('');
+    els.routineBody.innerHTML = `
+      <p>Calendario: <strong>${esc(calName)}</strong> · del <strong>${esc(fmtHuman(plan.from))}</strong> al <strong>${esc(fmtHuman(plan.to))}</strong></p>
+      <div class="routine-chips">
+        <span class="rchip r-train">🏋️ ${count('train')} entrenos</span>
+        <span class="rchip r-study">📚 ${count('study')} bloques de formación</span>
+        <span class="rchip r-meditate">🧘 ${count('meditate')} meditaciones</span>
+        <span class="rchip r-read">📖 ${count('read')} lecturas</span>
+        <span class="rchip r-sleep">😴 ${count('sleep') + count('nap')} bloques de sueño</span>
+      </div>
+      <table class="routine-table"><thead><tr><th>Semana</th><th>Entrenos</th><th>Formación</th><th>Sueño medio</th></tr></thead><tbody>${rows}</tbody></table>
+      <ul class="plan-list">
+        <li><span>Bloques nuevos</span><strong>${plan.create.length}</strong></li>
+        <li><span>Bloques que se recolocan</span><strong>${plan.update.length}</strong></li>
+        <li><span>Bloques que sobran (se borran)</span><strong>${plan.remove.length}</strong></li>
+        <li><span>Sin cambios</span><strong>${plan.same}</strong></li>
+      </ul>
+      ${plan.conflicts.length ? `<div class="note"><strong>Coinciden con eventos tuyos</strong> (no se tocan, revísalos):<br>${plan.conflicts.slice(0, 6).map(esc).join('<br>')}${plan.conflicts.length > 6 ? `<br>… y ${plan.conflicts.length - 6} más` : ''}</div>` : ''}
+      ${plan.warnings.length ? `<div class="note error-note">${plan.warnings.map(esc).join('<br>')}</div>` : ''}
+      ${nothing ? '<p class="note">Tu rutina ya está al día: no hay nada que cambiar.</p>' : ''}
+      <p class="muted small">Trayecto: ${plan.cfg.commute} min · sueño objetivo ${fmtHours(plan.cfg.sleepTarget)} (mínimo ${fmtHours(plan.cfg.sleepMin)}) · ${plan.cfg.perWeek} entrenos por semana. Puedes cambiarlo en config.js.</p>`;
+    els.routineConfirm.disabled = nothing;
+    els.routineConfirm.textContent = 'Crear rutina';
+  }
+
+  els.routineBtn.addEventListener('click', () => {
+    const tokenReady = ensureToken(true);
+    routinePlan = null;
+    els.routineBody.innerHTML = '<p class="muted">Leyendo tus turnos y tu calendario…</p>';
+    els.routineConfirm.disabled = true;
+    els.routineConfirm.textContent = 'Crear rutina';
+    els.routineDialog.showModal();
+    (async () => {
+      try {
+        await tokenReady;
+        routinePlan = await buildRoutinePlan();
+        renderRoutinePlan(routinePlan);
+      } catch (err) {
+        console.error(err);
+        els.routineBody.innerHTML = `<p class="note error-note">${esc(err instanceof AuthError ? 'Sesión caducada: pulsa «Reconectar» y vuelve a intentarlo.' : err.message)}</p>`;
+      }
+    })();
+  });
+
+  els.routineConfirm.addEventListener('click', () => {
+    if (!routinePlan) return;
+    const plan = routinePlan;
+    routinePlan = null;
+    const tokenReady = ensureToken(true);
+    els.routineConfirm.disabled = true;
+    (async () => {
+      try {
+        await tokenReady;
+        const { total, failed } = await applyShiftPlan(plan, els.routineConfirm);
+        els.routineDialog.close();
+        toast(failed
+          ? `Rutina creada, pero ${failed} bloque(s) fallaron. Pulsa «Rutina» otra vez para completarla.`
+          : `Rutina lista (${total} cambio${total === 1 ? '' : 's'}).`, failed ? 'error' : 'ok');
+      } catch (err) {
+        els.routineDialog.close();
+        handleError(err);
+      } finally {
+        calendar?.refetchEvents();
+      }
+    })();
+  });
+
+  els.routineDialog.querySelectorAll('[data-close-routine]').forEach((b) => b.addEventListener('click', () => els.routineDialog.close()));
+  els.routineDialog.addEventListener('click', (e) => { if (e.target === els.routineDialog) els.routineDialog.close(); });
 
   // ── Arranque y sesión ──────────────────────────────────────
   async function enterApp() {
@@ -1319,7 +1682,7 @@
 
   // Refresco automático: trae cambios hechos desde otros dispositivos
   function autoRefresh() {
-    if (!calendar || els.app.hidden || els.dialog.open || els.shiftsDialog.open) return;
+    if (!calendar || els.app.hidden || els.dialog.open || els.shiftsDialog.open || els.routineDialog.open) return;
     if (document.visibilityState !== 'visible') return;
     if (!tokenValid()) return showReconnect();
     calendar.refetchEvents();
@@ -1330,6 +1693,7 @@
   async function boot() {
     buildColorOptions();
     els.shiftsBtn.hidden = !(CFG.TURNOS && CFG.TURNOS.CSV_URL && CFG.TURNOS.OPERADOR);
+    els.routineBtn.hidden = els.shiftsBtn.hidden || !CFG.RUTINA;
 
     if (!CFG.CLIENT_ID || CFG.CLIENT_ID.startsWith('TU_CLIENT_ID')) {
       showLogin('Falta configurar el CLIENT_ID en config.js (mira el README).');

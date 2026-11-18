@@ -1,4 +1,4 @@
-.fc-dayGridMonth-view .fc-scroller { overflow-y: hidden !important; } .pop-desc { overflow-wrap: anywhere; }/* ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    Lams Calendar · estilos
    ══════════════════════════════════════════════════════════════ */
 
@@ -617,3 +617,53 @@ body {
   .row { grid-template-columns: 1fr 110px; }
   .ev { padding: 2px 4px; font-size: 11px; }
 }
+
+.fc-dayGridMonth-view .fc-scroller { overflow-y: hidden !important; }
+.pop-desc { overflow-wrap: anywhere; }
+
+/* ── Rutina ─────────────────────────────────────────────────── */
+.fc .fc-event.routine { box-shadow: none; }
+.fc .fc-event.routine .fc-event-main { color: inherit; }
+.fc .fc-event.routine-train { background: linear-gradient(135deg, #f87171, #ef4444 60%, #dc2626) !important; color: #fff !important; }
+.fc .fc-event.routine-study { background: linear-gradient(135deg, #34d399, #10b981 60%, #059669) !important; color: #fff !important; }
+.fc .fc-event.routine-meditate { background: #ccfbf1 !important; color: #115e59 !important; }
+.fc .fc-event.routine-read { background: #fce7f3 !important; color: #9d174d !important; }
+.fc .fc-event.routine-sleep, .fc .fc-event.routine-nap {
+  background: repeating-linear-gradient(135deg, #ede9fe 0 8px, #e4defc 8px 16px) !important;
+  color: #5b21b6 !important;
+}
+@media (prefers-color-scheme: dark) {
+  .fc .fc-event.routine-meditate { background: #134e4a !important; color: #99f6e4 !important; }
+  .fc .fc-event.routine-read { background: #500724 !important; color: #fbcfe8 !important; }
+  .fc .fc-event.routine-sleep, .fc .fc-event.routine-nap { background: repeating-linear-gradient(135deg, #2e1065 0 8px, #3b1a7a 8px 16px) !important; color: #ddd6fe !important; }
+}
+.fc .fc-list-event.routine { background: transparent !important; color: var(--text) !important; }
+.fc .fc-list-event.routine-train .fc-list-event-dot { border-color: #ef4444; }
+.fc .fc-list-event.routine-study .fc-list-event-dot { border-color: #10b981; }
+.fc .fc-list-event.routine-meditate .fc-list-event-dot { border-color: #14b8a6; }
+.fc .fc-list-event.routine-read .fc-list-event-dot { border-color: #ec4899; }
+.fc .fc-list-event.routine-sleep .fc-list-event-dot, .fc .fc-list-event.routine-nap .fc-list-event-dot { border-color: #a78bfa; }
+
+.routine-dialog { width: min(620px, calc(100vw - 24px)); }
+.routine-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rchip { font-size: 12.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px; }
+.rchip.r-train { background: #fee2e2; color: #991b1b; }
+.rchip.r-study { background: #d1fae5; color: #065f46; }
+.rchip.r-meditate { background: #ccfbf1; color: #115e59; }
+.rchip.r-read { background: #fce7f3; color: #9d174d; }
+.rchip.r-sleep { background: #ede9fe; color: #5b21b6; }
+@media (prefers-color-scheme: dark) {
+  .rchip.r-train { background: #450a0a; color: #fecaca; }
+  .rchip.r-study { background: #022c22; color: #a7f3d0; }
+  .rchip.r-meditate { background: #042f2e; color: #99f6e4; }
+  .rchip.r-read { background: #500724; color: #fbcfe8; }
+  .rchip.r-sleep { background: #2e1065; color: #ddd6fe; }
+}
+.routine-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.routine-table th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.routine-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.routine-table tr:last-child td { border-bottom: none; }
+.small { font-size: 12.5px; }
+
+.ev-compact { padding: 1px 6px; font-size: 11px; gap: 6px; height: 100%; }
+.ev-compact .ev-time { font-weight: 500; opacity: .75; font-size: 10.5px; }

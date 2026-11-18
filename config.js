@@ -27,4 +27,12 @@ window.APP_CONFIG = {
     // Zona horaria de los horarios del cuadrante.
     ZONA_HORARIA: "Europe/Madrid",
   },
+
+  // Rutina personal (botón «Rutina»): se organiza alrededor de tus turnos.
+  RUTINA: {
+    DESPLAZAMIENTO_MIN: 45,     // minutos de casa al trabajo
+    SUENO_HORAS: 7.5,           // sueño objetivo por noche
+    SUENO_MINIMO_HORAS: 7,      // avisa si alguna noche queda por debajo
+    ENTRENOS_SEMANA: 3,         // entrenos de 3 h por semana (días elegidos solos)
+  },
 };

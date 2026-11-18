@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=4" />
 </head>
 <body>
   <!-- Pantalla de acceso -->
@@ -40,6 +40,7 @@
         <span id="sync-status" class="sync-status" title="Estado de sincronización"></span>
         <button id="refresh-btn" class="btn btn-ghost btn-icon-only" type="button" title="Sincronizar ahora" aria-label="Sincronizar ahora">⟳</button>
         <button id="shifts-btn" class="btn btn-ghost" type="button" title="Sincronizar turnos de trabajo" hidden>🗓️ <span class="btn-label">Turnos</span></button>
+        <button id="routine-btn" class="btn btn-ghost" type="button" title="Organizar sueño, entreno, formación, meditación y lectura según tus turnos" hidden>🧩 <span class="btn-label">Rutina</span></button>
         <button id="meet-btn" class="btn btn-meet" type="button" title="Programar una reunión de Google Meet">🎥 <span class="btn-label">Reunión Meet</span></button>
         <button id="new-btn" class="btn btn-primary" type="button" title="Nuevo evento (tecla N)">＋ <span class="btn-label">Nuevo</span></button>
         <button id="logout-btn" class="btn btn-ghost" type="button" title="Desconectar cuenta">Salir</button>
@@ -184,6 +185,22 @@
     </div>
   </dialog>
 
+  <!-- Rutina personal -->
+  <dialog id="routine-dialog" class="event-dialog routine-dialog">
+    <div class="dialog-head">
+      <h2>🧩 Organizar mi rutina</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-routine aria-label="Cerrar">✕</button>
+    </div>
+    <div class="dialog-body" id="routine-body">
+      <p class="muted">Leyendo tus turnos…</p>
+    </div>
+    <div class="dialog-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-ghost" data-close-routine>Cancelar</button>
+      <button id="routine-confirm" type="button" class="btn btn-primary" disabled>Crear rutina</button>
+    </div>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <!-- Librerías -->
@@ -192,7 +209,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <!-- App -->
-  <script src="config.js?v=3"></script>
-  <script src="app.js?v=3"></script>
+  <script src="config.js?v=4"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

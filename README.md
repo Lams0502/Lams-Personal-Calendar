@@ -11,6 +11,7 @@ Calendario web personal alojado en **GitHub Pages** y sincronizado con **Google 
 - Arrastrar para mover un evento y estirar para cambiar su duración (si hay invitados, se les avisa del cambio).
 - Vistas de mes, semana, día y agenda. En el móvil se adapta solo.
 - **Turnos de trabajo** (botón 🗓️ Turnos): copia solo los turnos de Luis Martinez del cuadrante de operaciones. Cada tipo de turno tiene su color (☀️ mañana, 🌇 tarde, 🌙 noche) y la cabecera muestra tu próximo turno.
+- **Rutina personal** (botón 🧩 Rutina): organiza sueño, entreno, formación, meditación y lectura alrededor de tus turnos.
 - Selector de calendarios, modo oscuro automático y tecla **N** para crear un evento nuevo.
 
 **Cómo funciona:** no hay servidor ni base de datos. La página habla directamente con la API de Google Calendar desde tu navegador. Tu Google Calendar es el único sitio donde se guardan los datos, así que lo que cambies aquí aparece al instante en Google (móvil, Gmail…). Los cambios que hagas en Google se ven aquí al refrescar, cuando vuelves a la pestaña o cada 60 segundos.
@@ -116,6 +117,31 @@ Ajustes en `config.js` → `TURNOS`:
 - `SOLO_DESDE_HOY`: ponlo a `false` para importar también los turnos pasados.
 
 > Aviso: al final del cuadrante actual hay 3 turnos después del 31 de diciembre sin fecha en el archivo. No se importan hasta que el cuadrante tenga esas fechas.
+
+---
+
+## Rutina personal (botón 🧩 Rutina)
+
+Organiza cada día según el turno que tengas, a partir del mismo cuadrante que usa el botón Turnos:
+
+| Día | Despertar | Meditación | Entreno (3 h) | Formación | Lectura | Sueño |
+|---|---|---|---|---|---|---|
+| ☀️ Mañana (07–15) | 05:15 | 05:15 | 18:40–21:40 | 16:30–19:30 (2 h si entrenas) | antes de dormir | desde 21:45 (22:05 si entrenas) |
+| 🌇 Tarde (15–23) | 07:45 | 07:45 | 08:15–11:15 | 08:30–12:30 (2 h si entrenas) | 23:50 | 00:15–07:45 |
+| 🌙 Primera noche | 07:45 | 07:45 | — | 09:30–12:30 | 20:00 | siesta 15:30–18:30 |
+| 🌙 Noches seguidas | 15:15 | 15:15 | — | 16:15–19:15 | 20:00 | 08:15–15:15 |
+| Libre tras noches | 14:15 | 14:15 | — | 16:00–18:00 | antes de dormir | 08:15–14:15 y desde 23:00 |
+| Libre | 07:45 | 07:45 | 09:30–12:30 | 09:30–13:30 (16:00–19:30 si entrenas) | antes de dormir | desde 23:30 |
+
+- **Trayecto** de 45 minutos de ida y vuelta, ya descontado.
+- **Sueño**: 7,5 h de objetivo y nunca menos de 7 h por la noche. Si al día siguiente madrugas, te acuestas antes.
+- **Entrenos**: 3 por semana, elegidos solos. Primero días libres, luego mañanas de turno de tarde y luego tardes de turno de mañana. Nunca en días de noche ni el día de recuperación, y sin días seguidos salvo que no haya otra opción (nunca tres seguidos).
+- Antes de crear nada te enseña un resumen por semana y te avisa si algún bloque coincide con eventos tuyos (esos no se tocan).
+- **Sin duplicados**: si cambia el cuadrante, pulsa primero **Turnos** y luego **Rutina**, y los bloques se recolocan solos.
+- En la vista de **mes** solo se ven turnos, entrenos y formación. El sueño, la meditación y la lectura aparecen en las vistas de semana, día y agenda.
+- Los avisos del móvil solo están activados para los entrenos (30 min antes). El resto de bloques no te notifica.
+
+Ajustes en `config.js` → `RUTINA`: minutos de trayecto, horas de sueño y entrenos por semana.
 
 ---
 
