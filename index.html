@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=6" />
+  <link rel="stylesheet" href="styles.css?v=7" />
 </head>
 <body>
   <!-- Pantalla de acceso -->
@@ -244,10 +244,11 @@
       <div class="dialog-body">
         <div id="pdf-options" class="pdf-options">
           <fieldset class="field">
-            <legend>Formato</legend>
+            <legend>Formato <span class="muted small">· Semana y Día se ven por bloques de horas, como en el calendario</span></legend>
             <div class="seg">
+              <label><input type="radio" name="format" value="week" /><span>🕒 Semana</span></label>
+              <label><input type="radio" name="format" value="day" /><span>📆 Día</span></label>
               <label><input type="radio" name="format" value="month" /><span>📅 Mes</span></label>
-              <label><input type="radio" name="format" value="week" /><span>🗓️ Semana</span></label>
               <label><input type="radio" name="format" value="agenda" /><span>📋 Agenda</span></label>
             </div>
           </fieldset>
@@ -290,7 +291,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <!-- App -->
-  <script src="config.js?v=6"></script>
-  <script src="app.js?v=6"></script>
+  <script src="config.js?v=7"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>

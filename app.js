@@ -1659,7 +1659,10 @@
   //  de descripciones, ubicaciones, enlaces de Meet ni invitados.
   const JSPDF_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js';
   const PDF_ROUTINE_COLORS = { sleep: '#a78bfa', nap: '#a78bfa', train: '#ef4444', study: '#10b981', meditate: '#14b8a6', read: '#ec4899' };
-  const PDF_BUSY_COLOR = '#9ca3af';
+  const PDF_BUSY_COLOR = '#6b7280';
+  // Bloques con fondo claro → texto oscuro
+  const PDF_LIGHT_BLOCKS = { sleep: ['#ddd6fe', '#4c1d95'], nap: ['#ddd6fe', '#4c1d95'] };
+  const PDF_LEGEND = { work: ['Ocupado', '#6b7280'], train: ['Entreno', '#ef4444'], study: ['Formación', '#10b981'], meditate: ['Meditación', '#14b8a6'], read: ['Lectura', '#ec4899'], sleep: ['Sueño', '#a78bfa'] };
   let jspdfPromise = null;
   let pdfResult = null;
 
@@ -1718,7 +1721,7 @@
       else if (rk === 'nap') title = 'Siesta';            // «antes de la noche» delataría el turno
       else title = pdfText(g.summary) || '(Sin título)';
       const color = work ? PDF_BUSY_COLOR : rk ? PDF_ROUTINE_COLORS[rk] : (g.colorId && GOOGLE_COLORS[g.colorId]?.bg) || calendarColor;
-      items.push({ start, end, allDay, title, color, work });
+      items.push({ start, end, allDay, title, color, work, kind: work ? 'work' : rk === 'nap' ? 'sleep' : rk || 'event' });
     }
     return items.sort((a, b) => (b.allDay - a.allDay) || a.start - b.start);
   }
@@ -1767,19 +1770,25 @@
     doc.text(pdfText(`Generado el ${new Date().toLocaleDateString('es-ES')}`), W - 10, 12, { align: 'right' });
   }
 
-  function pdfFooters(doc, showBusy) {
+  function pdfFooters(doc, kinds) {
     const n = doc.getNumberOfPages();
     for (let i = 1; i <= n; i++) {
       doc.setPage(i);
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
+      doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
       doc.setTextColor(156, 163, 175);
       doc.text(`${i} / ${n}`, W - 10, H - 5, { align: 'right' });
-      if (showBusy) {
-        doc.setFillColor(...hexToRgb(PDF_BUSY_COLOR));
-        doc.roundedRect(10, H - 7.4, 3, 3, 0.6, 0.6, 'F');
-        doc.text('Ocupado', 14.5, H - 5);
+      let x = 10;
+      for (const k of Object.keys(PDF_LEGEND)) {
+        if (!kinds.has(k)) continue;
+        const [label, color] = PDF_LEGEND[k];
+        doc.setFillColor(...hexToRgb(color));
+        doc.roundedRect(x, H - 7.4, 3, 3, 0.6, 0.6, 'F');
+        doc.setTextColor(107, 114, 128);
+        doc.text(pdfText(label), x + 4.2, H - 5);
+        x += 6.5 + doc.getTextWidth(pdfText(label));
       }
     }
   }
@@ -1858,62 +1867,218 @@
     }
   }
 
-  function renderWeekPages(doc, byDay, from, to) {
-    const W = 297, H = 210, M = 10, top = 24, bottom = H - 11;
-    const colW = (W - 2 * M) / 7;
-    let first = true;
-    const startMonday = addDays(parseDate(from), -((parseDate(from).getDay() + 6) % 7));
-    for (let wk = startMonday; fmtDate(wk) <= to; wk = addDays(wk, 7)) {
-      if (!first) doc.addPage('a4', 'landscape');
-      first = false;
-      const wkEnd = addDays(wk, 6);
-      pdfHeader(doc, `Semana del ${shortRange(fmtDate(wk), fmtDate(wkEnd))}`, `Calendario · ${shortRange(from, to)}`);
-      for (let c = 0; c < 7; c++) {
-        const d = addDays(wk, c);
+  /** Parte cada evento con hora en trozos por día (un turno de noche 23:00-07:00
+   *  ocupa 23:00-24:00 del primer día y 00:00-07:00 del siguiente, como en el calendario). */
+  function timedSegments(items, from, to) {
+    const map = new Map();
+    for (const it of items) {
+      if (it.allDay) continue;
+      let d = new Date(it.start.getFullYear(), it.start.getMonth(), it.start.getDate());
+      while (d < it.end) {
+        const dayEnd = addDays(d, 1);
+        const s = Math.max(it.start, d), e = Math.min(it.end, dayEnd);
         const iso = fmtDate(d);
-        const x = M + c * colW;
-        const inRange = iso >= from && iso <= to;
-        doc.setFillColor(...(inRange ? [243, 244, 248] : [249, 250, 251]));
-        doc.roundedRect(x + 0.8, top, colW - 1.6, 10, 1.5, 1.5, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        doc.setTextColor(107, 114, 128);
-        doc.text(pdfText(capFirst(d.toLocaleDateString('es-ES', { weekday: 'long' }))), x + colW / 2, top + 4, { align: 'center' });
-        doc.setFontSize(11);
-        doc.setTextColor(inRange ? 23 : 190, inRange ? 25 : 190, inRange ? 35 : 200);
-        doc.text(String(d.getDate()), x + colW / 2, top + 8.6, { align: 'center' });
-        if (!inRange) continue;
-        let y = top + 13;
-        const list = byDay.get(iso) || [];
-        for (let i = 0; i < list.length; i++) {
-          const it = list[i];
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.6);
-          const lines = doc.splitTextToSize(it.title, colW - 6).slice(0, 2);
-          const h = 4.4 + lines.length * 3.3;
-          if (y + h > bottom - 4 && i < list.length) {
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7);
-            doc.setTextColor(79, 70, 229);
-            doc.text(`+${list.length - i} más`, x + 2, y + 3);
-            break;
-          }
-          doc.setFillColor(...tint(it.color, 0.84));
-          doc.roundedRect(x + 0.8, y, colW - 1.6, h, 1.2, 1.2, 'F');
-          doc.setFillColor(...hexToRgb(it.color));
-          doc.rect(x + 0.8, y, 1, h, 'F');
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.8);
-          doc.setTextColor(75, 85, 99);
-          doc.text(pdfTime(it), x + 3, y + 3.2);
-          doc.setFont('helvetica', it.work ? 'bold' : 'normal');
-          doc.setFontSize(7.6);
-          doc.setTextColor(17, 24, 39);
-          doc.text(lines, x + 3, y + 6.6);
-          y += h + 1.4;
+        if (e > s && iso >= from && iso <= to) {
+          if (!map.has(iso)) map.set(iso, []);
+          map.get(iso).push({ it, s: (s - d) / 60000, e: (e - d) / 60000, cont: s > it.start });
         }
+        d = dayEnd;
       }
     }
+    return map;
+  }
+
+  /** Coloca en carriles los eventos que se solapan (como hace el calendario). */
+  function layoutDay(segs, minDur) {
+    segs.sort((a, b) => a.s - b.s || b.e - a.e);
+    let cluster = [], end = -1;
+    const flush = () => {
+      const lanes = [];
+      for (const sg of cluster) {
+        let i = lanes.findIndex((le) => le <= sg.s);
+        if (i < 0) { i = lanes.length; lanes.push(0); }
+        lanes[i] = Math.max(sg.e, sg.s + minDur);
+        sg.lane = i;
+      }
+      cluster.forEach((sg) => { sg.lanes = lanes.length; });
+      cluster = []; end = -1;
+    };
+    for (const sg of segs) {
+      if (cluster.length && sg.s >= end) flush();
+      cluster.push(sg);
+      end = Math.max(end, sg.e, sg.s + minDur);
+    }
+    if (cluster.length) flush();
+    return segs;
+  }
+
+  const hourLabel = (h) => `${String(h % 24).padStart(2, '0')}:00`;
+
+  function renderTimeGridPages(doc, items, from, to, mode) {
+    const day = mode === 'day';
+    const W = day ? 210 : 297, H = day ? 297 : 210, M = 10;
+    const axisW = 11;
+    const segsByDay = timedSegments(items, from, to);
+    const allDayByDay = itemsByDay(items.filter((i) => i.allDay), from, to);
+    const startMonday = addDays(parseDate(from), -((parseDate(from).getDay() + 6) % 7));
+    const pages = [];
+    if (day) for (let d = parseDate(from); fmtDate(d) <= to; d = addDays(d, 1)) pages.push([d]);
+    else for (let wk = startMonday; fmtDate(wk) <= to; wk = addDays(wk, 7)) pages.push([...Array(7)].map((_, i) => addDays(wk, i)));
+
+    pages.forEach((days, pi) => {
+      if (pi) doc.addPage('a4', day ? 'portrait' : 'landscape');
+      const isoDays = days.map(fmtDate);
+      const inRange = (iso) => iso >= from && iso <= to;
+      const title = day
+        ? longDate(days[0])
+        : `Semana del ${shortRange(isoDays[0], isoDays[6])}`;
+      pdfHeader(doc, title, `Calendario · ${shortRange(from, to)}`);
+
+      // Horas visibles: de 07 a 22 como mínimo, ampliado a lo que haga falta.
+      let minH = 7, maxH = 22;
+      isoDays.forEach((iso) => (inRange(iso) ? segsByDay.get(iso) || [] : []).forEach((sg) => {
+        minH = Math.min(minH, Math.floor(sg.s / 60));
+        maxH = Math.max(maxH, Math.ceil(sg.e / 60));
+      }));
+      const hours = maxH - minH;
+
+      const cols = days.length;
+      const gridL = M + axisW, gridR = W - M;
+      const colW = (gridR - gridL) / cols;
+      const headTop = 24;
+      const headH = day ? 0 : 10;
+      const hasAllDay = isoDays.some((iso) => inRange(iso) && (allDayByDay.get(iso) || []).length);
+      const adH = hasAllDay ? 6.5 : 0;
+      const gridTop = headTop + headH + adH + (hasAllDay || !day ? 1.5 : 0);
+      const gridBottom = H - 11;
+      const hourH = (gridBottom - gridTop) / hours;
+      const minDur = Math.max(15, (3.4 / hourH) * 60); // altura mínima visible de un bloque
+
+      // Cabecera de días
+      if (!day) {
+        days.forEach((d, c) => {
+          const x = gridL + c * colW, iso = isoDays[c];
+          const ok = inRange(iso);
+          doc.setFillColor(...(ok ? [243, 244, 248] : [249, 250, 251]));
+          doc.roundedRect(x + 0.6, headTop, colW - 1.2, headH - 1, 1.6, 1.6, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(107, 114, 128);
+          doc.text(pdfText(capFirst(d.toLocaleDateString('es-ES', { weekday: 'short' }).replace('.', ''))), x + colW / 2 - 1.5, headTop + 5.6, { align: 'right' });
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          doc.setTextColor(ok ? 23 : 190, ok ? 25 : 190, ok ? 35 : 200);
+          doc.text(String(d.getDate()), x + colW / 2 + 0.5, headTop + 6, { align: 'left' });
+        });
+      }
+
+      // Fila «todo el día»
+      if (hasAllDay) {
+        const y0 = headTop + headH;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.8);
+        doc.setTextColor(156, 163, 175);
+        doc.text('Todo el', M + axisW - 1.2, y0 + 2.8, { align: 'right' });
+        doc.text('día', M + axisW - 1.2, y0 + 5.2, { align: 'right' });
+        days.forEach((d, c) => {
+          const iso = isoDays[c];
+          if (!inRange(iso)) return;
+          const list = allDayByDay.get(iso) || [];
+          const x = gridL + c * colW;
+          list.slice(0, 1).forEach((it) => {
+            doc.setFillColor(...hexToRgb(it.color));
+            doc.roundedRect(x + 0.6, y0 + 0.4, colW - 1.2, adH - 1, 1.2, 1.2, 'F');
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.8);
+            doc.setTextColor(255, 255, 255);
+            const label = list.length > 1 ? `${it.title} (+${list.length - 1})` : it.title;
+            doc.text(fit(doc, label, colW - 4), x + 2, y0 + 4.1);
+          });
+        });
+      }
+
+      // Fondo: columnas fuera de rango y fines de semana
+      days.forEach((d, c) => {
+        const x = gridL + c * colW;
+        if (!inRange(isoDays[c])) { doc.setFillColor(249, 250, 251); doc.rect(x, gridTop, colW, gridBottom - gridTop, 'F'); }
+        else if (!day && (d.getDay() === 0 || d.getDay() === 6)) { doc.setFillColor(250, 250, 253); doc.rect(x, gridTop, colW, gridBottom - gridTop, 'F'); }
+      });
+
+      // Líneas de horas y medias horas
+      for (let h = 0; h <= hours; h++) {
+        const y = gridTop + h * hourH;
+        doc.setDrawColor(229, 231, 239);
+        doc.setLineWidth(0.2);
+        doc.setLineDashPattern([], 0);
+        doc.line(gridL, y, gridR, y);
+        if (h < hours) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.2);
+          doc.setTextColor(156, 163, 175);
+          doc.text(hourLabel(minH + h), gridL - 1.4, y + 2.2, { align: 'right' });
+          if (hourH > 6) {
+            doc.setDrawColor(240, 241, 246);
+            doc.setLineDashPattern([0.6, 0.8], 0);
+            doc.line(gridL, y + hourH / 2, gridR, y + hourH / 2);
+            doc.setLineDashPattern([], 0);
+          }
+        }
+      }
+      // Separadores verticales
+      doc.setDrawColor(229, 231, 239);
+      for (let c = 0; c <= cols; c++) doc.line(gridL + c * colW, gridTop, gridL + c * colW, gridBottom);
+
+      // Bloques
+      days.forEach((d, c) => {
+        const iso = isoDays[c];
+        if (!inRange(iso)) return;
+        const segs = layoutDay((segsByDay.get(iso) || []).slice(), minDur);
+        const x0 = gridL + c * colW;
+        for (const sg of segs) {
+          const it = sg.it;
+          const laneW = (colW - 1.4) / sg.lanes;
+          const x = x0 + 0.7 + sg.lane * laneW;
+          const w = laneW - (sg.lanes > 1 ? 0.5 : 0);
+          const y = gridTop + (sg.s / 60 - minH) * hourH + 0.25;
+          const h = Math.max(3.2, ((sg.e - sg.s) / 60) * hourH - 0.5);
+          const light = PDF_LIGHT_BLOCKS[it.kind];
+          const [fill, ink] = light ? [hexToRgb(light[0]), hexToRgb(light[1])] : [hexToRgb(it.color), [255, 255, 255]];
+          doc.setFillColor(...fill);
+          doc.roundedRect(x, y, w, h, 1, 1, 'F');
+          // Banda lateral un poco más oscura
+          doc.setFillColor(...fill.map((v) => Math.round(v * 0.8)));
+          doc.rect(x, y + 0.4, 0.7, h - 0.8, 'F');
+
+          const tx = x + 1.8, tw = w - 2.6;
+          const time = `${fmtClock(it.start)}-${fmtClock(it.end)}`;
+          doc.setTextColor(...ink);
+          if (h < 5.6) {
+            // Bloque corto: una sola línea «hora · título»
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(h < 4 ? 5.4 : 6);
+            const line = w > 22 ? `${fmtClock(it.start)}  ${it.title}` : it.title;
+            doc.text(fit(doc, line, tw), tx, y + Math.min(h - 0.9, 2.6 + (h - 3.2) / 2));
+          } else {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(day ? 8.5 : 6.8);
+            const lh = day ? 3.6 : 2.6;
+            const base = day ? 3.8 : 2.8;                        // primera línea base
+            const avail = Math.max(1, Math.floor((h - 0.6 - base) / lh) + 1);
+            let lines = doc.splitTextToSize(it.title, tw);
+            // La hora solo si cabe: primero se prioriza que el título se lea entero.
+            const showTime = lines.length + 1 <= avail;
+            const maxLines = showTime ? avail - 1 : avail;
+            if (lines.length > maxLines) { lines = lines.slice(0, maxLines); lines[maxLines - 1] = fit(doc, lines[maxLines - 1] + ' ...', tw); }
+            doc.text(lines, tx, y + base);
+            if (showTime) {
+              doc.setFont('helvetica', 'normal');
+              doc.setFontSize(day ? 7.5 : 5.9);
+              doc.text(fit(doc, time, tw), tx, y + base + lines.length * lh);
+            }
+          }
+        }
+      });
+    });
   }
 
   function renderAgendaPages(doc, byDay, from, to) {
@@ -1967,13 +2132,13 @@
     const events = await listEvents(parseDate(from), addDays(parseDate(to), 1));
     const items = pdfItems(events, opts);
     const byDay = itemsByDay(items, from, to);
-    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: format === 'agenda' ? 'portrait' : 'landscape' });
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: format === 'agenda' || format === 'day' ? 'portrait' : 'landscape' });
     doc.setProperties({ title: `Calendario ${from} - ${to}`, creator: 'Lams Calendar' });
     if (format === 'month') renderMonthPages(doc, byDay, from, to);
-    else if (format === 'week') renderWeekPages(doc, byDay, from, to);
+    else if (format === 'week' || format === 'day') renderTimeGridPages(doc, items, from, to, format);
     else renderAgendaPages(doc, byDay, from, to);
-    const busy = items.some((i) => i.work);
-    pdfFooters(doc, busy);
+    const inRangeItems = [...byDay.values()].flat();
+    pdfFooters(doc, new Set(inRangeItems.map((i) => i.kind)));
     const blob = doc.output('blob');
     const inRange = [...byDay.values()].flat();
     return {
@@ -1990,7 +2155,7 @@
     if (!v) { const t = new Date(); return { format: 'month', from: fmtDate(new Date(t.getFullYear(), t.getMonth(), 1)), to: fmtDate(new Date(t.getFullYear(), t.getMonth() + 1, 0)) }; }
     const from = fmtDate(v.currentStart);
     const to = fmtDate(addDays(v.currentEnd, -1));
-    const format = v.type === 'dayGridMonth' ? 'month' : v.type.startsWith('list') ? 'agenda' : 'week';
+    const format = v.type === 'dayGridMonth' ? 'month' : v.type === 'timeGridDay' ? 'day' : 'week';
     return { format, from, to };
   }
 

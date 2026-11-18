@@ -909,7 +909,7 @@ html, body { height: 100%; }
 /* ── Exportar a PDF ─────────────────────────────────────────── */
 .pdf-dialog { width: min(520px, calc(100vw - 24px)); }
 .pdf-options { display: grid; gap: 14px; }
-.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; background: var(--surface-2); padding: 4px; border-radius: 12px; }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; background: var(--surface-2); padding: 4px; border-radius: 12px; }
 .seg label { cursor: pointer; position: relative; display: block; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }
 .seg span { display: block; text-align: center; padding: 9px 6px; border-radius: 9px; font-weight: 600; font-size: 13.5px; color: var(--muted); transition: background .15s, color .15s; }
@@ -927,6 +927,7 @@ html, body { height: 100%; }
 #pdf-dialog[open] #pdf-result:not([hidden]) ~ * { display: none; }
 @media (max-width: 700px) {
   .pdf-dialog { width: 100vw; }
+  .seg { grid-template-columns: 1fr 1fr; }
   .seg span { padding: 11px 4px; font-size: 14px; }
   .pdf-actions { flex-direction: column; width: 100%; }
   .pdf-actions .btn { justify-content: center; width: 100%; }
