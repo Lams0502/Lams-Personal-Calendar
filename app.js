@@ -98,6 +98,11 @@
     routineDialog: $('#routine-dialog'),
     routineBody: $('#routine-body'),
     routineConfirm: $('#routine-confirm'),
+    bottomNav: $('#bottom-nav'),
+    fab: $('#fab'),
+    moreBtn: $('#more-btn'),
+    moreMenu: $('#more-menu'),
+    calSelectMobile: $('#calendar-select-mobile'),
   };
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const f = els.form.elements;
@@ -323,6 +328,8 @@
       els.calSelect.appendChild(opt);
     }
     els.calSelect.value = currentCalendarId;
+    els.calSelectMobile.innerHTML = els.calSelect.innerHTML;
+    els.calSelectMobile.value = currentCalendarId;
     applyCalendarSettings();
   }
 
@@ -335,6 +342,7 @@
     els.shiftsBtn.disabled = !calendarWritable;
     els.meetBtn.disabled = !calendarWritable;
     els.routineBtn.disabled = !calendarWritable;
+    els.fab.disabled = !calendarWritable;
     try { localStorage.setItem(LS.calendar, currentCalendarId); } catch { /* ignorar */ }
     if (calendar) {
       calendar.setOption('eventColor', calendarColor);
@@ -709,18 +717,38 @@
   }
 
   // ── Calendario (FullCalendar) ──────────────────────────────
+  const mqMobile = window.matchMedia('(max-width: 700px)');
+  const isMobile = () => mqMobile.matches;
+  const DESKTOP_TOOLBAR = { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' };
+  const MOBILE_TOOLBAR = { left: 'today', center: 'title', right: 'prev,next' };
+  // Vistas equivalentes al cambiar entre móvil y escritorio
+  const TO_MOBILE = { timeGridWeek: 'timeGrid3Day', listWeek: 'listTwoWeeks' };
+  const TO_DESKTOP = { timeGrid3Day: 'timeGridWeek', listTwoWeeks: 'listWeek' };
+
   function createCalendar() {
-    const narrow = window.matchMedia('(max-width: 700px)').matches;
+    const narrow = isMobile();
+    document.body.classList.toggle('is-mobile', narrow);
     calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
       locale: 'es',
       firstDay: 1,
       timeZone: 'local',
       height: '100%',
-      initialView: narrow ? 'listWeek' : 'dayGridMonth',
-      headerToolbar: narrow
-        ? { left: 'prev,next', center: 'title', right: 'today' }
-        : { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' },
-      footerToolbar: narrow ? { center: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' } : false,
+      initialView: narrow ? 'listTwoWeeks' : 'dayGridMonth',
+      headerToolbar: narrow ? MOBILE_TOOLBAR : DESKTOP_TOOLBAR,
+      footerToolbar: false,
+      views: {
+        timeGrid3Day: { type: 'timeGrid', duration: { days: 3 }, buttonText: '3 días', dayHeaderFormat: { weekday: 'short', day: 'numeric' } },
+        listTwoWeeks: { type: 'list', duration: { days: 14 }, buttonText: 'Agenda' },
+        timeGridDay: { dayHeaderFormat: { weekday: 'long', day: 'numeric', month: 'long' }, titleFormat: { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' } },
+        dayGridMonth: { dayHeaderFormat: { weekday: narrow ? 'narrow' : 'short' } },
+      },
+      longPressDelay: 350,
+      selectLongPressDelay: 350,
+      eventLongPressDelay: 450,
+      dateClick: (info) => {
+        // En el móvil, tocar un día del mes abre ese día (mantener pulsado crea un evento).
+        if (isMobile() && info.view.type === 'dayGridMonth') calendar.changeView('timeGridDay', info.date);
+      },
       nowIndicator: true,
       navLinks: true,
       dayMaxEvents: true, fixedWeekCount: false,
@@ -735,18 +763,19 @@
       scrollTime: '07:00:00',
       slotDuration: '00:30:00',
       expandRows: true,
-      dayHeaderFormat: narrow ? { weekday: 'narrow' } : undefined,
       eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
       slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
       eventContent: renderEventContent,
       eventMinHeight: 20,
       eventDidMount: (arg) => {
         arg.el.title = arg.event.title;
+        arg.el.style.setProperty('--evc', eventColor(arg.event));
         // En la agenda, un turno de noche mostraría "23:00 - 00:00": ponemos el horario real.
         const { start, end, allDay } = arg.event;
         const cell = arg.el.querySelector('.fc-list-event-time');
-        if (cell && !allDay && end && fmtDate(start) !== fmtDate(end)) {
-          cell.textContent = `${fmtClock(start)} - ${fmtClock(end)}`;
+        if (cell && !allDay) {
+          const e = end || addMinutes(start, 60);
+          cell.innerHTML = `<span class="t1">${fmtClock(start)}</span><span class="t2">${fmtClock(e)}</span>`;
         }
       },
       datesSet: (info) => {
@@ -756,6 +785,7 @@
           setTimeout(() => calendar.refetchEvents(), 0);
         }
         lastViewType = info.view.type;
+        updateBottomNav(info.view.type);
       },
 
       events: async (info, success, failure) => {
@@ -865,6 +895,7 @@
 
     els.pop.style.setProperty('--ev-color', eventColor(ev));
     els.pop.innerHTML = `
+      <div class="pop-handle" aria-hidden="true"></div>
       <div class="pop-head">
         <span class="pop-badge">${shift ? shift.icon : g.hangoutLink ? '🎥' : ''}</span>
         <h3>${esc(ev.title)}</h3>
@@ -990,7 +1021,7 @@
       renderPopover(true);
     }
   });
-  window.addEventListener('resize', closePopover);
+  window.addEventListener('resize', () => { if (!isMobile()) closePopover(); });
   document.getElementById('calendar').addEventListener('scroll', closePopover, true);
 
   // ── Próximo turno (chip de la cabecera) ────────────────────
@@ -1026,7 +1057,8 @@
   }
   els.nextShift.addEventListener('click', () => {
     if (!nextShiftDate || !calendar) return;
-    calendar.changeView(calendar.view.type.startsWith('list') ? calendar.view.type : 'timeGridWeek', nextShiftDate);
+    const target = calendar.view.type.startsWith('list') ? calendar.view.type : isMobile() ? 'timeGridDay' : 'timeGridWeek';
+    calendar.changeView(target, nextShiftDate);
   });
 
   // ── Reunión de Google Meet ─────────────────────────────────
@@ -1611,6 +1643,109 @@
   els.routineDialog.querySelectorAll('[data-close-routine]').forEach((b) => b.addEventListener('click', () => els.routineDialog.close()));
   els.routineDialog.addEventListener('click', (e) => { if (e.target === els.routineDialog) els.routineDialog.close(); });
 
+  // ── Móvil: barra inferior, menú ⋯, gestos y cambio de tamaño ──
+  function updateBottomNav(viewType) {
+    els.bottomNav.querySelectorAll('[data-view]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.view === viewType);
+      b.setAttribute('aria-current', b.dataset.view === viewType ? 'page' : 'false');
+    });
+  }
+
+  els.bottomNav.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-view]');
+    if (!b || !calendar) return;
+    calendar.changeView(b.dataset.view);
+  });
+  els.fab.addEventListener('click', () => openDialog());
+
+  function openMenu() {
+    els.moreMenu.hidden = false;
+    requestAnimationFrame(() => els.moreMenu.classList.add('show'));
+    els.moreBtn.setAttribute('aria-expanded', 'true');
+  }
+  function closeMenu() {
+    if (els.moreMenu.hidden) return;
+    els.moreMenu.classList.remove('show');
+    els.moreBtn.setAttribute('aria-expanded', 'false');
+    setTimeout(() => { els.moreMenu.hidden = true; }, 180);
+  }
+  els.moreBtn.addEventListener('click', () => (els.moreMenu.hidden ? openMenu() : closeMenu()));
+  els.moreMenu.addEventListener('click', (e) => {
+    if (e.target === els.moreMenu) return closeMenu();
+    const item = e.target.closest('[data-proxy]');
+    if (!item) return;
+    closeMenu();
+    // Reutiliza los botones de la cabecera (mismo clic → el pop-up de Google no se bloquea).
+    const target = document.getElementById(item.dataset.proxy);
+    if (target && !target.disabled) target.click();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+
+  // Tocar un día en la vista de mes (móvil) abre ese día
+  document.getElementById('calendar').addEventListener('click', (e) => {
+    if (!isMobile() || !calendar || calendar.view.type !== 'dayGridMonth' || els.dialog.open) return;
+    if (e.target.closest('.fc-event, .fc-daygrid-more-link, .fc-popover, .fc-toolbar')) return;
+    const td = e.target.closest('td.fc-daygrid-day');
+    if (td?.dataset.date) calendar.changeView('timeGridDay', td.dataset.date);
+  });
+
+  // Deslizar a izquierda/derecha para cambiar de periodo
+  (() => {
+    const el = document.getElementById('calendar');
+    let sx = 0, sy = 0, st = 0, tracking = false;
+    el.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1 || e.target.closest('.fc-event, .fc-highlight, .fc-event-mirror')) { tracking = false; return; }
+      tracking = true; sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now();
+    }, { passive: true });
+    el.addEventListener('touchend', (e) => {
+      if (!tracking || !calendar) return;
+      tracking = false;
+      const dx = e.changedTouches[0].clientX - sx;
+      const dy = e.changedTouches[0].clientY - sy;
+      if (Date.now() - st < 700 && Math.abs(dx) > 70 && Math.abs(dy) < 50) {
+        el.classList.remove('swipe-left', 'swipe-right');
+        void el.offsetWidth;
+        el.classList.add(dx < 0 ? 'swipe-left' : 'swipe-right');
+        dx < 0 ? calendar.next() : calendar.prev();
+      }
+    }, { passive: true });
+  })();
+
+  // Bajar la tarjeta del evento con el dedo para cerrarla (móvil)
+  (() => {
+    let sy = 0, dragging = false;
+    els.pop.addEventListener('touchstart', (e) => {
+      if (!els.pop.classList.contains('sheet') || els.pop.scrollTop > 0) return;
+      dragging = true; sy = e.touches[0].clientY;
+    }, { passive: true });
+    els.pop.addEventListener('touchmove', (e) => {
+      if (!dragging) return;
+      const dy = Math.max(0, e.touches[0].clientY - sy);
+      els.pop.style.transform = `translateY(${dy}px)`;
+    }, { passive: true });
+    els.pop.addEventListener('touchend', (e) => {
+      if (!dragging) return;
+      dragging = false;
+      const dy = e.changedTouches[0].clientY - sy;
+      els.pop.style.transform = '';
+      if (dy > 90) closePopover();
+    }, { passive: true });
+  })();
+
+  function applyResponsive() {
+    const m = isMobile();
+    document.body.classList.toggle('is-mobile', m);
+    closeMenu();
+    if (!calendar) return;
+    calendar.setOption('headerToolbar', m ? MOBILE_TOOLBAR : DESKTOP_TOOLBAR);
+    const v = calendar.view.type;
+    const map = m ? TO_MOBILE : TO_DESKTOP;
+    if (map[v]) calendar.changeView(map[v]);
+    updateBottomNav(calendar.view.type);
+    calendar.updateSize();
+  }
+  mqMobile.addEventListener('change', applyResponsive);
+
   // ── Arranque y sesión ──────────────────────────────────────
   async function enterApp() {
     els.loginScreen.hidden = true;
@@ -1655,11 +1790,15 @@
     showLogin('Has cerrado la sesión.');
   });
 
-  els.calSelect.addEventListener('change', () => {
-    currentCalendarId = els.calSelect.value;
+  function changeCalendar(id) {
+    currentCalendarId = id;
+    els.calSelect.value = id;
+    els.calSelectMobile.value = id;
     applyCalendarSettings();
     calendar?.refetchEvents();
-  });
+  }
+  els.calSelect.addEventListener('change', () => changeCalendar(els.calSelect.value));
+  els.calSelectMobile.addEventListener('change', () => { changeCalendar(els.calSelectMobile.value); closeMenu(); });
 
   els.refreshBtn.addEventListener('click', () => {
     if (!tokenValid()) {

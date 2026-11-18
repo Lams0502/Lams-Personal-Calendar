@@ -12,6 +12,7 @@ Calendario web personal alojado en **GitHub Pages** y sincronizado con **Google 
 - Vistas de mes, semana, día y agenda. En el móvil se adapta solo.
 - **Turnos de trabajo** (botón 🗓️ Turnos): copia solo los turnos de Luis Martinez del cuadrante de operaciones. Cada tipo de turno tiene su color (☀️ mañana, 🌇 tarde, 🌙 noche) y la cabecera muestra tu próximo turno.
 - **Rutina personal** (botón 🧩 Rutina): organiza sueño, entreno, formación, meditación y lectura alrededor de tus turnos.
+- **Diseñado también para el móvil**: barra inferior con Agenda, Día, 3 días y Mes, botón ＋, menú ⋯, deslizar para cambiar de semana e icono para la pantalla de inicio.
 - Selector de calendarios, modo oscuro automático y tecla **N** para crear un evento nuevo.
 
 **Cómo funciona:** no hay servidor ni base de datos. La página habla directamente con la API de Google Calendar desde tu navegador. Tu Google Calendar es el único sitio donde se guardan los datos, así que lo que cambies aquí aparece al instante en Google (móvil, Gmail…). Los cambios que hagas en Google se ven aquí al refrescar, cuando vuelves a la pestaña o cada 60 segundos.
@@ -21,10 +22,12 @@ Calendario web personal alojado en **GitHub Pages** y sincronizado con **Google 
 ## Estructura
 
 ```
-├── index.html   Página principal
-├── styles.css   Estilos
-├── config.js    ← Lo único que tienes que editar (tu CLIENT_ID)
-└── app.js       Lógica: login con Google, API, calendario
+├── index.html            Página principal
+├── styles.css            Estilos (escritorio, tablet y móvil)
+├── config.js             ← Lo único que tienes que editar
+├── app.js                Lógica: login con Google, API, calendario, turnos y rutina
+├── manifest.webmanifest  Icono y nombre para la pantalla de inicio
+└── icons/                Iconos de la app
 ```
 
 ---
@@ -142,6 +145,20 @@ Organiza cada día según el turno que tengas, a partir del mismo cuadrante que 
 - Los avisos del móvil solo están activados para los entrenos (30 min antes). El resto de bloques no te notifica.
 
 Ajustes en `config.js` → `RUTINA`: minutos de trayecto, horas de sueño y entrenos por semana.
+
+---
+
+## En el móvil
+
+- **Barra inferior**: 📋 Agenda (2 semanas en tarjetas), Día, 3 días y Mes, y en el centro el botón **＋** para crear un evento.
+- **Menú ⋯** (arriba a la derecha): cambiar de calendario, reunión de Google Meet, sincronizar turnos, organizar la rutina, actualizar y cerrar sesión.
+- **Gestos**: desliza a izquierda o derecha para ir al periodo siguiente o anterior. En la vista de mes, toca un día para abrirlo. Mantén pulsado un hueco para crear un evento a esa hora.
+- **Tarjeta de evento**: sale desde abajo; para cerrarla, deslízala hacia abajo.
+- **Añadir a la pantalla de inicio** (se abre con su propio icono):
+  - iPhone (Safari): botón Compartir → «Añadir a pantalla de inicio».
+  - Android (Chrome): menú ⋮ → «Añadir a pantalla de inicio».
+
+  Se abre en el navegador a propósito, porque así el inicio de sesión con Google funciona siempre.
 
 ---
 

@@ -2,21 +2,26 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Lams Personal Calendar</title>
   <meta name="robots" content="noindex" />
-  <meta name="theme-color" content="#4f46e5" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>" />
+  <meta name="theme-color" content="#f4f5fb" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0d0f17" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-title" content="Calendario" />
+  <meta name="format-detection" content="telephone=no" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=5" />
 </head>
 <body>
   <!-- Pantalla de acceso -->
   <section id="login-screen" class="login-screen">
     <div class="login-card">
-      <div class="logo logo-lg">📅</div>
+      <img class="logo-img" src="icons/icon-192.png" alt="" width="72" height="72" />
       <h1>Lams Calendar</h1>
       <p class="muted">Tus eventos, turnos y reuniones de Google Meet en un solo sitio. Todo se guarda directamente en tu Google Calendar.</p>
       <button id="login-btn" class="btn btn-primary btn-lg" type="button" disabled>Conectar con Google</button>
@@ -28,7 +33,7 @@
   <div id="app" class="app" hidden>
     <header class="topbar">
       <div class="topbar-left">
-        <span class="brand"><span class="logo">📅</span><span class="brand-text">Lams Calendar</span></span>
+        <span class="brand"><img class="logo-img logo-sm" src="icons/icon-192.png" alt="" width="34" height="34" /><span class="brand-text">Lams Calendar</span></span>
         <label class="cal-picker">
           <span class="sr-only">Calendario</span>
           <span id="cal-dot" class="cal-dot"></span>
@@ -44,6 +49,7 @@
         <button id="meet-btn" class="btn btn-meet" type="button" title="Programar una reunión de Google Meet">🎥 <span class="btn-label">Reunión Meet</span></button>
         <button id="new-btn" class="btn btn-primary" type="button" title="Nuevo evento (tecla N)">＋ <span class="btn-label">Nuevo</span></button>
         <button id="logout-btn" class="btn btn-ghost" type="button" title="Desconectar cuenta">Salir</button>
+        <button id="more-btn" class="btn btn-ghost btn-icon-only more-btn" type="button" aria-label="Más opciones" aria-haspopup="true" aria-expanded="false">⋯</button>
       </div>
     </header>
 
@@ -55,6 +61,31 @@
     <main class="calendar-wrap">
       <div id="calendar"></div>
     </main>
+
+    <!-- Barra inferior (móvil) -->
+    <nav id="bottom-nav" class="bottom-nav" aria-label="Vistas del calendario">
+      <button type="button" data-view="listTwoWeeks"><span class="bn-ico">☰</span><span>Agenda</span></button>
+      <button type="button" data-view="timeGridDay"><span class="bn-ico">▤</span><span>Día</span></button>
+      <button id="fab" type="button" class="fab" aria-label="Nuevo evento">＋</button>
+      <button type="button" data-view="timeGrid3Day"><span class="bn-ico">▥</span><span>3 días</span></button>
+      <button type="button" data-view="dayGridMonth"><span class="bn-ico">▦</span><span>Mes</span></button>
+    </nav>
+  </div>
+
+  <!-- Menú ⋯ (móvil) -->
+  <div id="more-menu" class="more-menu" hidden>
+    <div class="more-sheet" role="menu">
+      <div class="pop-handle" aria-hidden="true"></div>
+      <label class="more-cal">
+        <span class="muted">Calendario</span>
+        <select id="calendar-select-mobile"></select>
+      </label>
+      <button type="button" role="menuitem" data-proxy="meet-btn"><span>🎥</span>Nueva reunión de Google Meet</button>
+      <button type="button" role="menuitem" data-proxy="shifts-btn"><span>🗓️</span>Sincronizar turnos</button>
+      <button type="button" role="menuitem" data-proxy="routine-btn"><span>🧩</span>Organizar mi rutina</button>
+      <button type="button" role="menuitem" data-proxy="refresh-btn"><span>⟳</span>Actualizar ahora</button>
+      <button type="button" role="menuitem" data-proxy="logout-btn" class="danger"><span>↩</span>Cerrar sesión</button>
+    </div>
   </div>
 
   <!-- Tarjeta de evento (al hacer clic en un evento) -->
@@ -209,7 +240,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <!-- App -->
-  <script src="config.js?v=4"></script>
-  <script src="app.js?v=4"></script>
+  <script src="config.js?v=5"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
