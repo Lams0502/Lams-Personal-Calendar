@@ -12,6 +12,7 @@ Calendario web personal alojado en **GitHub Pages** y sincronizado con **Google 
 - Vistas de mes, semana, día y agenda. En el móvil se adapta solo.
 - **Turnos de trabajo** (botón 🗓️ Turnos): copia solo los turnos de Luis Martinez del cuadrante de operaciones. Cada tipo de turno tiene su color (☀️ mañana, 🌇 tarde, 🌙 noche) y la cabecera muestra tu próximo turno.
 - **Rutina personal** (botón 🧩 Rutina): organiza sueño, entreno, formación, meditación y lectura alrededor de tus turnos.
+- **Descargar o compartir en PDF** (botón 📄 PDF): mes, semana o agenda. Los turnos de trabajo salen solo como «Ocupado».
 - **Diseñado también para el móvil**: barra inferior con Agenda, Día, 3 días y Mes, botón ＋, menú ⋯, deslizar para cambiar de semana e icono para la pantalla de inicio.
 - Selector de calendarios, modo oscuro automático y tecla **N** para crear un evento nuevo.
 
@@ -145,6 +146,24 @@ Organiza cada día según el turno que tengas, a partir del mismo cuadrante que 
 - Los avisos del móvil solo están activados para los entrenos (30 min antes). El resto de bloques no te notifica.
 
 Ajustes en `config.js` → `RUTINA`: minutos de trayecto, horas de sueño y entrenos por semana.
+
+---
+
+## Calendario en PDF (botón 📄 PDF)
+
+Crea un PDF para compartir. En el móvil está en el menú ⋯.
+
+- **Formatos**: 📅 Mes (una página por mes), 🗓️ Semana (una página por semana) o 📋 Agenda (lista día a día).
+- **Fechas**: por defecto, las que estás viendo en el calendario.
+- **Qué incluir**: turnos de trabajo, tus eventos y reuniones, la rutina y, si quieres, las horas de sueño.
+- **Privacidad**:
+  - Los turnos del cuadrante salen **solo como «Ocupado»**, con su horario pero sin el tipo de turno (mañana, tarde o noche), sin el lugar y en gris neutro, para que el color tampoco lo delate.
+  - La «Siesta antes de la noche» sale solo como «Siesta».
+  - Del resto de eventos solo aparecen **la hora y el asunto**: nunca descripciones, ubicaciones, enlaces de Meet, invitados ni tu email.
+  - Las invitaciones que rechazaste no aparecen.
+- Al terminar puedes **descargarlo** o, en el móvil, **compartirlo** directamente (WhatsApp, correo…).
+
+El PDF se crea en tu propio navegador: tus datos no se envían a ningún servidor.
 
 ---
 

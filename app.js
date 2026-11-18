@@ -103,6 +103,16 @@
     moreBtn: $('#more-btn'),
     moreMenu: $('#more-menu'),
     calSelectMobile: $('#calendar-select-mobile'),
+    pdfBtn: $('#pdf-btn'),
+    pdfDialog: $('#pdf-dialog'),
+    pdfForm: $('#pdf-form'),
+    pdfOptions: $('#pdf-options'),
+    pdfCreate: $('#pdf-create'),
+    pdfResult: $('#pdf-result'),
+    pdfSummary: $('#pdf-summary'),
+    pdfDownload: $('#pdf-download'),
+    pdfShare: $('#pdf-share'),
+    pdfBack: $('#pdf-back'),
   };
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const f = els.form.elements;
@@ -1643,6 +1653,430 @@
   els.routineDialog.querySelectorAll('[data-close-routine]').forEach((b) => b.addEventListener('click', () => els.routineDialog.close()));
   els.routineDialog.addEventListener('click', (e) => { if (e.target === els.routineDialog) els.routineDialog.close(); });
 
+  // ── Exportar a PDF ─────────────────────────────────────────
+  //  Los turnos del cuadrante salen SIEMPRE como «Ocupado» (sin tipo, lugar
+  //  ni color propio). El resto de eventos sale solo con hora y asunto: nada
+  //  de descripciones, ubicaciones, enlaces de Meet ni invitados.
+  const JSPDF_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js';
+  const PDF_ROUTINE_COLORS = { sleep: '#a78bfa', nap: '#a78bfa', train: '#ef4444', study: '#10b981', meditate: '#14b8a6', read: '#ec4899' };
+  const PDF_BUSY_COLOR = '#9ca3af';
+  let jspdfPromise = null;
+  let pdfResult = null;
+
+  function loadJsPDF() {
+    if (window.jspdf?.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+    if (!jspdfPromise) {
+      jspdfPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = JSPDF_URL;
+        s.async = true;
+        s.onload = () => (window.jspdf?.jsPDF ? resolve(window.jspdf.jsPDF) : reject(new Error('No se pudo cargar el generador de PDF.')));
+        s.onerror = () => { jspdfPromise = null; reject(new Error('No se pudo cargar el generador de PDF. Revisa tu conexión.')); };
+        document.head.appendChild(s);
+      });
+    }
+    return jspdfPromise;
+  }
+
+  /** ¿Es un turno de trabajo del cuadrante? (marcado por la app o con título de turno) */
+  const isWorkShift = (g) => g?.extendedProperties?.private?.turnosSync === '1'
+    || /^\s*(turno\s+)?(mañana|tarde|noche)\s*[·-]\s*(arteixo|laracha)/i.test(g?.summary || '')
+    || /^\s*turno\s+(mañana|tarde|noche)\b/i.test(g?.summary || '');
+
+  /** Texto apto para las fuentes estándar del PDF (Latin-1, sin emojis). */
+  function pdfText(s) {
+    return String(s || '')
+      .replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+      .replace(/[–—]/g, '-').replace(/…/g, '...')
+      .replace(/[^\x20-\x7E\xA0-\xFF]/g, '')
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  function hexToRgb(hex) {
+    const h = String(hex || '#4f46e5').replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const tint = (hex, amount) => hexToRgb(hex).map((c) => Math.round(c + (255 - c) * amount));
+
+  /** Convierte los eventos de Google en elementos para el PDF, ya anonimizados. */
+  function pdfItems(events, opts) {
+    const items = [];
+    for (const g of events) {
+      if (selfAttendee(g)?.responseStatus === 'declined') continue;
+      const work = isWorkShift(g);
+      const rk = routineKind(g);
+      if (work && !opts.work) continue;
+      if (rk && !opts.routine) continue;
+      if ((rk === 'sleep' || rk === 'nap') && !opts.sleep) continue;
+      if (!work && !rk && !opts.others) continue;
+      const allDay = !!g.start?.date;
+      const start = allDay ? parseDate(g.start.date) : new Date(g.start.dateTime);
+      const end = allDay ? parseDate(g.end?.date || g.start.date) : new Date(g.end?.dateTime || g.start.dateTime);
+      let title;
+      if (work) title = 'Ocupado';                       // nunca el tipo de turno ni el lugar
+      else if (rk === 'nap') title = 'Siesta';            // «antes de la noche» delataría el turno
+      else title = pdfText(g.summary) || '(Sin título)';
+      const color = work ? PDF_BUSY_COLOR : rk ? PDF_ROUTINE_COLORS[rk] : (g.colorId && GOOGLE_COLORS[g.colorId]?.bg) || calendarColor;
+      items.push({ start, end, allDay, title, color, work });
+    }
+    return items.sort((a, b) => (b.allDay - a.allDay) || a.start - b.start);
+  }
+
+  /** Agrupa por día (los eventos de día completo aparecen en cada día que ocupan). */
+  function itemsByDay(items, from, to) {
+    const map = new Map();
+    const push = (iso, it) => { if (iso < from || iso > to) return; if (!map.has(iso)) map.set(iso, []); map.get(iso).push(it); };
+    for (const it of items) {
+      if (it.allDay) {
+        for (let d = new Date(it.start); d < it.end || fmtDate(d) === fmtDate(it.start); d = addDays(d, 1)) push(fmtDate(d), it);
+      } else push(fmtDate(it.start), it);
+    }
+    return map;
+  }
+
+  const pdfTime = (it) => (it.allDay ? 'Todo el día' : `${fmtClock(it.start)}-${fmtClock(it.end)}`);
+  const pdfStart = (it) => (it.allDay ? '' : fmtClock(it.start));
+  const capFirst = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const longDate = (d) => capFirst(d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+  const shortRange = (a, b) => {
+    const A = parseDate(a), B = parseDate(b);
+    const sameMonth = A.getMonth() === B.getMonth() && A.getFullYear() === B.getFullYear();
+    return sameMonth
+      ? `${A.getDate()}-${B.getDate()} ${B.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`
+      : `${A.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} - ${B.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  };
+
+  function pdfHeader(doc, title, subtitle) {
+    const W = doc.internal.pageSize.getWidth();
+    doc.setFillColor(79, 70, 229);
+    doc.roundedRect(10, 8, 9, 9, 2, 2, 'F');
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(12.2, 10.6, 4.6, 4.4, 0.6, 0.6, 'F');
+    doc.setFillColor(224, 231, 255);
+    doc.rect(12.2, 10.6, 4.6, 1.3, 'F');
+    doc.setTextColor(23, 25, 35);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(15);
+    doc.text(pdfText(title), 22, 13.2);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(107, 114, 128);
+    doc.text(pdfText(subtitle), 22, 17.6);
+    doc.setFontSize(7.5);
+    doc.text(pdfText(`Generado el ${new Date().toLocaleDateString('es-ES')}`), W - 10, 12, { align: 'right' });
+  }
+
+  function pdfFooters(doc, showBusy) {
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      doc.setPage(i);
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      doc.setFontSize(7);
+      doc.setTextColor(156, 163, 175);
+      doc.text(`${i} / ${n}`, W - 10, H - 5, { align: 'right' });
+      if (showBusy) {
+        doc.setFillColor(...hexToRgb(PDF_BUSY_COLOR));
+        doc.roundedRect(10, H - 7.4, 3, 3, 0.6, 0.6, 'F');
+        doc.text('Ocupado', 14.5, H - 5);
+      }
+    }
+  }
+
+  /** Recorta un texto para que quepa en una anchura (añade «...»). */
+  function fit(doc, text, width) {
+    if (doc.getTextWidth(text) <= width) return text;
+    let t = text;
+    while (t.length > 1 && doc.getTextWidth(t + '...') > width) t = t.slice(0, -1);
+    return t.trimEnd() + '...';
+  }
+
+  function renderMonthPages(doc, byDay, from, to) {
+    const W = 297, H = 210, M = 10, top = 24, bottom = H - 10;
+    const colW = (W - 2 * M) / 7;
+    const wd = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'];
+    let first = true;
+    for (let m = new Date(parseDate(from).getFullYear(), parseDate(from).getMonth(), 1); fmtDate(m) <= to; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) {
+      if (!first) doc.addPage('a4', 'landscape');
+      first = false;
+      pdfHeader(doc, capFirst(m.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })), `Calendario · ${shortRange(from, to)}`);
+      const gridStart = addDays(m, -((m.getDay() + 6) % 7));
+      const last = new Date(m.getFullYear(), m.getMonth() + 1, 0);
+      const weeks = Math.ceil((((m.getDay() + 6) % 7) + last.getDate()) / 7);
+      doc.setFillColor(243, 244, 248);
+      doc.rect(M, top, W - 2 * M, 6, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(107, 114, 128);
+      wd.forEach((w, i) => doc.text(pdfText(w), M + colW * i + colW / 2, top + 4, { align: 'center' }));
+      const rowH = (bottom - top - 6) / weeks;
+      for (let r = 0; r < weeks; r++) {
+        for (let c = 0; c < 7; c++) {
+          const d = addDays(gridStart, r * 7 + c);
+          const iso = fmtDate(d);
+          const x = M + c * colW, y = top + 6 + r * rowH;
+          const inMonth = d.getMonth() === m.getMonth();
+          const inRange = iso >= from && iso <= to;
+          if (!inMonth || !inRange) { doc.setFillColor(249, 250, 251); doc.rect(x, y, colW, rowH, 'F'); }
+          else if (c >= 5) { doc.setFillColor(252, 252, 254); doc.rect(x, y, colW, rowH, 'F'); }
+          doc.setDrawColor(229, 231, 239);
+          doc.setLineWidth(0.2);
+          doc.rect(x, y, colW, rowH);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(inMonth && inRange ? 23 : 190, inMonth && inRange ? 25 : 190, inMonth && inRange ? 35 : 200);
+          doc.text(String(d.getDate()), x + colW - 1.8, y + 3.8, { align: 'right' });
+          if (!inMonth || !inRange) continue;
+          const list = byDay.get(iso) || [];
+          const lineH = 3.4;
+          const maxLines = Math.max(1, Math.floor((rowH - 6) / lineH));
+          const shown = list.length > maxLines ? list.slice(0, maxLines - 1) : list;
+          doc.setFontSize(6.4);
+          shown.forEach((it, i) => {
+            const ly = y + 7.6 + i * lineH;
+            doc.setFillColor(...tint(it.color, 0.82));
+            doc.roundedRect(x + 1, ly - 2.5, colW - 2, 3.1, 0.6, 0.6, 'F');
+            doc.setFillColor(...hexToRgb(it.color));
+            doc.rect(x + 1, ly - 2.5, 0.8, 3.1, 'F');
+            const t = pdfStart(it);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(55, 65, 81);
+            let tx = x + 2.6;
+            if (t) { doc.text(t, tx, ly); tx += doc.getTextWidth(t) + 1; }
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(31, 41, 55);
+            doc.text(fit(doc, it.title, x + colW - 1.6 - tx), tx, ly);
+          });
+          if (list.length > shown.length) {
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(79, 70, 229);
+            doc.text(`+${list.length - shown.length} más`, x + 2.6, y + 7.6 + shown.length * lineH);
+          }
+        }
+      }
+    }
+  }
+
+  function renderWeekPages(doc, byDay, from, to) {
+    const W = 297, H = 210, M = 10, top = 24, bottom = H - 11;
+    const colW = (W - 2 * M) / 7;
+    let first = true;
+    const startMonday = addDays(parseDate(from), -((parseDate(from).getDay() + 6) % 7));
+    for (let wk = startMonday; fmtDate(wk) <= to; wk = addDays(wk, 7)) {
+      if (!first) doc.addPage('a4', 'landscape');
+      first = false;
+      const wkEnd = addDays(wk, 6);
+      pdfHeader(doc, `Semana del ${shortRange(fmtDate(wk), fmtDate(wkEnd))}`, `Calendario · ${shortRange(from, to)}`);
+      for (let c = 0; c < 7; c++) {
+        const d = addDays(wk, c);
+        const iso = fmtDate(d);
+        const x = M + c * colW;
+        const inRange = iso >= from && iso <= to;
+        doc.setFillColor(...(inRange ? [243, 244, 248] : [249, 250, 251]));
+        doc.roundedRect(x + 0.8, top, colW - 1.6, 10, 1.5, 1.5, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(107, 114, 128);
+        doc.text(pdfText(capFirst(d.toLocaleDateString('es-ES', { weekday: 'long' }))), x + colW / 2, top + 4, { align: 'center' });
+        doc.setFontSize(11);
+        doc.setTextColor(inRange ? 23 : 190, inRange ? 25 : 190, inRange ? 35 : 200);
+        doc.text(String(d.getDate()), x + colW / 2, top + 8.6, { align: 'center' });
+        if (!inRange) continue;
+        let y = top + 13;
+        const list = byDay.get(iso) || [];
+        for (let i = 0; i < list.length; i++) {
+          const it = list[i];
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.6);
+          const lines = doc.splitTextToSize(it.title, colW - 6).slice(0, 2);
+          const h = 4.4 + lines.length * 3.3;
+          if (y + h > bottom - 4 && i < list.length) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7);
+            doc.setTextColor(79, 70, 229);
+            doc.text(`+${list.length - i} más`, x + 2, y + 3);
+            break;
+          }
+          doc.setFillColor(...tint(it.color, 0.84));
+          doc.roundedRect(x + 0.8, y, colW - 1.6, h, 1.2, 1.2, 'F');
+          doc.setFillColor(...hexToRgb(it.color));
+          doc.rect(x + 0.8, y, 1, h, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.8);
+          doc.setTextColor(75, 85, 99);
+          doc.text(pdfTime(it), x + 3, y + 3.2);
+          doc.setFont('helvetica', it.work ? 'bold' : 'normal');
+          doc.setFontSize(7.6);
+          doc.setTextColor(17, 24, 39);
+          doc.text(lines, x + 3, y + 6.6);
+          y += h + 1.4;
+        }
+      }
+    }
+  }
+
+  function renderAgendaPages(doc, byDay, from, to) {
+    const W = 210, H = 297, M = 12, bottom = H - 14;
+    pdfHeader(doc, 'Agenda', `Calendario · ${shortRange(from, to)}`);
+    let y = 26;
+    const days = [...byDay.keys()].sort();
+    if (!days.length) {
+      doc.setFontSize(11);
+      doc.setTextColor(107, 114, 128);
+      doc.text('No hay eventos en estas fechas.', M, y + 8);
+      return;
+    }
+    for (const iso of days) {
+      const list = byDay.get(iso);
+      if (y + 16 > bottom) { doc.addPage('a4', 'portrait'); y = 14; }
+      doc.setFillColor(238, 242, 255);
+      doc.roundedRect(M, y, W - 2 * M, 7.5, 1.5, 1.5, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(67, 56, 202);
+      doc.text(pdfText(longDate(parseDate(iso))), M + 3, y + 5.1);
+      y += 10;
+      for (const it of list) {
+        doc.setFont('helvetica', it.work ? 'bold' : 'normal');
+        doc.setFontSize(9.5);
+        const lines = doc.splitTextToSize(it.title, W - 2 * M - 40);
+        const h = Math.max(6.5, lines.length * 4.4 + 2.2);
+        if (y + h > bottom) { doc.addPage('a4', 'portrait'); y = 14; }
+        doc.setFillColor(...hexToRgb(it.color));
+        doc.roundedRect(M + 1, y + 0.6, 1.4, h - 1.2, 0.6, 0.6, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(75, 85, 99);
+        doc.text(pdfTime(it), M + 5, y + 4.4);
+        doc.setFont('helvetica', it.work ? 'bold' : 'normal');
+        doc.setFontSize(9.5);
+        doc.setTextColor(17, 24, 39);
+        doc.text(lines, M + 36, y + 4.4);
+        doc.setDrawColor(238, 240, 245);
+        doc.setLineWidth(0.2);
+        doc.line(M + 5, y + h, W - M, y + h);
+        y += h + 0.6;
+      }
+      y += 3;
+    }
+  }
+
+  async function buildPdf({ format, from, to, opts }) {
+    const jsPDF = await loadJsPDF();
+    const events = await listEvents(parseDate(from), addDays(parseDate(to), 1));
+    const items = pdfItems(events, opts);
+    const byDay = itemsByDay(items, from, to);
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: format === 'agenda' ? 'portrait' : 'landscape' });
+    doc.setProperties({ title: `Calendario ${from} - ${to}`, creator: 'Lams Calendar' });
+    if (format === 'month') renderMonthPages(doc, byDay, from, to);
+    else if (format === 'week') renderWeekPages(doc, byDay, from, to);
+    else renderAgendaPages(doc, byDay, from, to);
+    const busy = items.some((i) => i.work);
+    pdfFooters(doc, busy);
+    const blob = doc.output('blob');
+    const inRange = [...byDay.values()].flat();
+    return {
+      blob,
+      name: `calendario_${from}_${to}.pdf`,
+      pages: doc.getNumberOfPages(),
+      events: new Set(inRange).size,
+      busy: new Set(inRange.filter((i) => i.work)).size,
+    };
+  }
+
+  function defaultPdfRange() {
+    const v = calendar?.view;
+    if (!v) { const t = new Date(); return { format: 'month', from: fmtDate(new Date(t.getFullYear(), t.getMonth(), 1)), to: fmtDate(new Date(t.getFullYear(), t.getMonth() + 1, 0)) }; }
+    const from = fmtDate(v.currentStart);
+    const to = fmtDate(addDays(v.currentEnd, -1));
+    const format = v.type === 'dayGridMonth' ? 'month' : v.type.startsWith('list') ? 'agenda' : 'week';
+    return { format, from, to };
+  }
+
+  function openPdfDialog() {
+    const d = defaultPdfRange();
+    els.pdfForm.format.value = d.format;
+    els.pdfForm.from.value = d.from;
+    els.pdfForm.to.value = d.to;
+    els.pdfResult.hidden = true;
+    els.pdfOptions.hidden = false;
+    els.pdfCreate.hidden = false;
+    els.pdfCreate.disabled = false;
+    els.pdfCreate.textContent = 'Crear PDF';
+    pdfResult = null;
+    els.pdfDialog.showModal();
+    loadJsPDF().catch(() => {}); // precarga
+  }
+
+  els.pdfBtn.addEventListener('click', openPdfDialog);
+  els.pdfForm.querySelectorAll('input[name="format"]').forEach((r) => r.addEventListener('change', () => {
+    // Al elegir «mes», ajusta las fechas al mes completo de la fecha de inicio.
+    if (els.pdfForm.format.value !== 'month' || !els.pdfForm.from.value) return;
+    const a = parseDate(els.pdfForm.from.value);
+    els.pdfForm.from.value = fmtDate(new Date(a.getFullYear(), a.getMonth(), 1));
+    if (!els.pdfForm.to.value || els.pdfForm.to.value < els.pdfForm.from.value) els.pdfForm.to.value = fmtDate(new Date(a.getFullYear(), a.getMonth() + 1, 0));
+  }));
+
+  els.pdfCreate.addEventListener('click', () => {
+    const f = els.pdfForm;
+    const from = f.from.value, to = f.to.value;
+    if (!from || !to) return toast('Elige la fecha de inicio y de fin.', 'error');
+    if (to < from) return toast('La fecha de fin no puede ser anterior a la de inicio.', 'error');
+    if ((parseDate(to) - parseDate(from)) / 86400000 > 370) return toast('Elige un periodo de un año como máximo.', 'error');
+    const opts = { work: f.work.checked, others: f.others.checked, routine: f.routine.checked, sleep: f.sleep.checked };
+    const tokenReady = ensureToken(true);
+    els.pdfCreate.disabled = true;
+    els.pdfCreate.textContent = 'Creando…';
+    (async () => {
+      try {
+        await tokenReady;
+        pdfResult = await buildPdf({ format: f.format.value, from, to, opts });
+        const canShare = !!(navigator.canShare && navigator.canShare({ files: [new File([pdfResult.blob], pdfResult.name, { type: 'application/pdf' })] }));
+        els.pdfSummary.innerHTML = `<strong>PDF listo</strong> · ${pdfResult.pages} página${pdfResult.pages === 1 ? '' : 's'} · ${pdfResult.events} evento${pdfResult.events === 1 ? '' : 's'}${pdfResult.busy ? `<br><span class="muted">${pdfResult.busy} turno${pdfResult.busy === 1 ? '' : 's'} de trabajo aparecen solo como «Ocupado».</span>` : ''}`;
+        els.pdfShare.hidden = !canShare;
+        els.pdfOptions.hidden = true;
+        els.pdfCreate.hidden = true;
+        els.pdfResult.hidden = false;
+      } catch (err) {
+        handleError(err);
+        els.pdfCreate.disabled = false;
+        els.pdfCreate.textContent = 'Crear PDF';
+      }
+    })();
+  });
+
+  els.pdfDownload.addEventListener('click', () => {
+    if (!pdfResult) return;
+    const url = URL.createObjectURL(pdfResult.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = pdfResult.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  });
+
+  els.pdfShare.addEventListener('click', async () => {
+    if (!pdfResult) return;
+    try {
+      await navigator.share({ files: [new File([pdfResult.blob], pdfResult.name, { type: 'application/pdf' })], title: 'Calendario' });
+    } catch (err) {
+      if (err?.name !== 'AbortError') toast('No se pudo compartir. Descárgalo y compártelo desde tus archivos.', 'error');
+    }
+  });
+
+  els.pdfBack.addEventListener('click', () => {
+    els.pdfResult.hidden = true;
+    els.pdfOptions.hidden = false;
+    els.pdfCreate.hidden = false;
+    els.pdfCreate.disabled = false;
+    els.pdfCreate.textContent = 'Crear PDF';
+  });
+  els.pdfDialog.querySelectorAll('[data-close-pdf]').forEach((b) => b.addEventListener('click', () => els.pdfDialog.close()));
+  els.pdfDialog.addEventListener('click', (e) => { if (e.target === els.pdfDialog) els.pdfDialog.close(); });
+
   // ── Móvil: barra inferior, menú ⋯, gestos y cambio de tamaño ──
   function updateBottomNav(viewType) {
     els.bottomNav.querySelectorAll('[data-view]').forEach((b) => {
@@ -1821,7 +2255,7 @@
 
   // Refresco automático: trae cambios hechos desde otros dispositivos
   function autoRefresh() {
-    if (!calendar || els.app.hidden || els.dialog.open || els.shiftsDialog.open || els.routineDialog.open) return;
+    if (!calendar || els.app.hidden || els.dialog.open || els.shiftsDialog.open || els.routineDialog.open || els.pdfDialog.open) return;
     if (document.visibilityState !== 'visible') return;
     if (!tokenValid()) return showReconnect();
     calendar.refetchEvents();

@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=6" />
 </head>
 <body>
   <!-- Pantalla de acceso -->
@@ -46,6 +46,7 @@
         <button id="refresh-btn" class="btn btn-ghost btn-icon-only" type="button" title="Sincronizar ahora" aria-label="Sincronizar ahora">⟳</button>
         <button id="shifts-btn" class="btn btn-ghost" type="button" title="Sincronizar turnos de trabajo" hidden>🗓️ <span class="btn-label">Turnos</span></button>
         <button id="routine-btn" class="btn btn-ghost" type="button" title="Organizar sueño, entreno, formación, meditación y lectura según tus turnos" hidden>🧩 <span class="btn-label">Rutina</span></button>
+        <button id="pdf-btn" class="btn btn-ghost" type="button" title="Descargar o compartir el calendario en PDF">📄 <span class="btn-label">PDF</span></button>
         <button id="meet-btn" class="btn btn-meet" type="button" title="Programar una reunión de Google Meet">🎥 <span class="btn-label">Reunión Meet</span></button>
         <button id="new-btn" class="btn btn-primary" type="button" title="Nuevo evento (tecla N)">＋ <span class="btn-label">Nuevo</span></button>
         <button id="logout-btn" class="btn btn-ghost" type="button" title="Desconectar cuenta">Salir</button>
@@ -81,6 +82,7 @@
         <select id="calendar-select-mobile"></select>
       </label>
       <button type="button" role="menuitem" data-proxy="meet-btn"><span>🎥</span>Nueva reunión de Google Meet</button>
+      <button type="button" role="menuitem" data-proxy="pdf-btn"><span>📄</span>Descargar o compartir en PDF</button>
       <button type="button" role="menuitem" data-proxy="shifts-btn"><span>🗓️</span>Sincronizar turnos</button>
       <button type="button" role="menuitem" data-proxy="routine-btn"><span>🧩</span>Organizar mi rutina</button>
       <button type="button" role="menuitem" data-proxy="refresh-btn"><span>⟳</span>Actualizar ahora</button>
@@ -232,6 +234,54 @@
     </div>
   </dialog>
 
+  <!-- Exportar a PDF -->
+  <dialog id="pdf-dialog" class="event-dialog pdf-dialog">
+    <form id="pdf-form" method="dialog" novalidate>
+      <header class="dialog-head">
+        <h2>📄 Calendario en PDF</h2>
+        <button type="button" class="btn btn-ghost btn-icon" data-close-pdf aria-label="Cerrar">✕</button>
+      </header>
+      <div class="dialog-body">
+        <div id="pdf-options" class="pdf-options">
+          <fieldset class="field">
+            <legend>Formato</legend>
+            <div class="seg">
+              <label><input type="radio" name="format" value="month" /><span>📅 Mes</span></label>
+              <label><input type="radio" name="format" value="week" /><span>🗓️ Semana</span></label>
+              <label><input type="radio" name="format" value="agenda" /><span>📋 Agenda</span></label>
+            </div>
+          </fieldset>
+          <div class="row row-2">
+            <label class="field"><span>Desde</span><input name="from" type="date" required /></label>
+            <label class="field"><span>Hasta</span><input name="to" type="date" required /></label>
+          </div>
+          <fieldset class="field pdf-include">
+            <legend>Qué incluir</legend>
+            <label class="check"><input name="work" type="checkbox" checked /><span>Turnos de trabajo <span class="busy-chip">Ocupado</span></span></label>
+            <label class="check"><input name="others" type="checkbox" checked /><span>Mis eventos y reuniones</span></label>
+            <label class="check"><input name="routine" type="checkbox" checked /><span>Rutina (entreno, formación, meditación, lectura)</span></label>
+            <label class="check"><input name="sleep" type="checkbox" /><span>Horas de sueño</span></label>
+          </fieldset>
+          <p class="note">🔒 Los turnos del cuadrante salen solo como <strong>«Ocupado»</strong>, sin tipo de turno, lugar ni color. Del resto de eventos solo aparecen la hora y el asunto: nada de descripciones, ubicaciones, enlaces ni invitados.</p>
+        </div>
+        <div id="pdf-result" class="pdf-result" hidden>
+          <div class="pdf-ok">✅</div>
+          <p id="pdf-summary"></p>
+          <div class="pdf-actions">
+            <button id="pdf-download" type="button" class="btn btn-primary">⬇️ Descargar PDF</button>
+            <button id="pdf-share" type="button" class="btn btn-meet" hidden>📤 Compartir</button>
+          </div>
+          <button id="pdf-back" type="button" class="btn btn-ghost btn-sm">Cambiar opciones</button>
+        </div>
+      </div>
+      <footer class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close-pdf>Cerrar</button>
+        <button id="pdf-create" type="button" class="btn btn-primary">Crear PDF</button>
+      </footer>
+    </form>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <!-- Librerías -->
@@ -240,7 +290,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <!-- App -->
-  <script src="config.js?v=5"></script>
-  <script src="app.js?v=5"></script>
+  <script src="config.js?v=6"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
